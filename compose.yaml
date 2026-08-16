@@ -1,0 +1,135 @@
+services:
+  migrate:
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend}:${VOXHOLD_VERSION:-latest}
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p "$$(dirname "$$DATABASE_PATH")"
+        if [ "$$RESET_DATABASE" = "true" ]; then
+          echo "refusing RESET_DATABASE=true in production deploy"
+          exit 1
+        fi
+        exec migrate \
+          -path "$$MIGRATIONS_PATH" \
+          -database "sqlite://$$DATABASE_PATH" \
+          up
+    volumes:
+      - voxhold_data:/app/data
+    networks:
+      - internal
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  bootstrap:
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend}:${VOXHOLD_VERSION:-latest}
+    env_file:
+      - .env
+    entrypoint: ["voxhold-bootstrap"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - voxhold_data:/app/data
+    networks:
+      - internal
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend}:${VOXHOLD_VERSION:-latest}
+    env_file:
+      - .env
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    expose:
+      - "8080"
+    ports:
+      - "${WEBRTC_UDP_PORT:-50000}:${WEBRTC_UDP_PORT:-50000}/udp"
+      - "${WEBRTC_STREAM_UDP_PORT:-50001}:${WEBRTC_STREAM_UDP_PORT:-50001}/udp"
+    volumes:
+      - voxhold_data:/app/data
+    networks:
+      - internal
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ${VOXHOLD_FRONTEND_IMAGE:-ghcr.io/looneman1/voxhold-frontend}:${VOXHOLD_VERSION:-latest}
+    profiles: ["web"]
+    environment:
+      BACKEND_UPSTREAM: backend:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      - internal
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+      - /tmp:uid=101,gid=101
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2.10-alpine
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      EDGE_UPSTREAM: ${EDGE_UPSTREAM:-backend:8080}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  voxhold_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    internal: true

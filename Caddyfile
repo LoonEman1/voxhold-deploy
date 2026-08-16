@@ -1,0 +1,7 @@
+# Caddy obtains a publicly trusted certificate when PUBLIC_HOST is a domain.
+# For an IP address it uses Caddy's local CA unless an external certificate
+# is mounted explicitly.
+
+{$PUBLIC_HOST} {
+	reverse_proxy {$EDGE_UPSTREAM}
+}
