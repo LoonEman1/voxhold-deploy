@@ -17,6 +17,7 @@ case "$language_choice" in
 esac
 
 if [[ "$language" == "ru" ]]; then
+    msg_linux_required="Развёртывание Voxhold поддерживается только на Linux-серверах."
     msg_docker_required="Требуется Docker. Установите Docker Engine и Docker Compose."
     msg_compose_required="Требуется Docker Compose v2."
     msg_deployment_mode="Режим установки:"
@@ -45,6 +46,7 @@ if [[ "$language" == "ru" ]]; then
     msg_running="Voxhold доступен по адресу:"
     msg_native_url="Базовый URL нативного клиента:"
 else
+    msg_linux_required="Voxhold deployment is supported only on Linux hosts."
     msg_docker_required="Docker is required. Install Docker Engine and Docker Compose first."
     msg_compose_required="Docker Compose v2 is required."
     msg_deployment_mode="Deployment mode:"
@@ -72,6 +74,11 @@ else
     msg_starting="Starting Voxhold..."
     msg_running="Voxhold is running at:"
     msg_native_url="Native client base URL:"
+fi
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "$msg_linux_required" >&2
+    exit 1
 fi
 
 if ! command -v docker >/dev/null 2>&1; then

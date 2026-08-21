@@ -1,0 +1,5 @@
+*.sh text eol=lf
+*.yaml text eol=lf
+Caddyfile text eol=lf
+.env.example text eol=lf
+*.md text eol=lf
