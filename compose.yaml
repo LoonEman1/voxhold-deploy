@@ -93,9 +93,10 @@ services:
       - no-new-privileges:true
 
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.11.4-alpine
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-localhost}
       EDGE_UPSTREAM: ${EDGE_UPSTREAM:-backend:8080}
     depends_on:
       backend:
@@ -104,7 +105,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${VOXHOLD_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:

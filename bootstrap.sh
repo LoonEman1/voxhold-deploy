@@ -67,6 +67,7 @@ required_files=(
     bootstrap.sh
     compose.yaml
     Caddyfile
+    Caddyfile.ip
     install.sh
     update.sh
     backup.sh

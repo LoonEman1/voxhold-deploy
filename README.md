@@ -86,9 +86,18 @@ For a public website, point the domain's A/AAAA record to the server and allow:
 - `50001/udp` for screen sharing.
 
 Backend and frontend HTTP ports are available only inside the Compose network.
-Caddy obtains and renews a public certificate when a domain is used. An IP
-address uses Caddy's locally trusted certificate unless an external IP
-certificate is configured.
+For a domain, Caddy obtains and renews its publicly trusted certificate. For a
+bare public IPv4 or IPv6 address, the installer obtains a publicly trusted
+short-lived Let's Encrypt certificate with Caddy. No certificate needs to be
+installed on client devices.
+
+IP certificates are valid for about six days. Caddy begins renewal around
+half-life, retries temporary ACME or network failures, and checks the stored
+certificate immediately whenever the container starts. A renewal missed while
+the server was powered off is therefore recovered after the next start. Keep
+the `caddy_data` Docker volume: it contains the ACME account, certificates and
+keys. The public IP must remain assigned to the server, and ports `80/tcp` and
+`443/tcp` must remain reachable for ACME validation.
 
 ## Container images
 
@@ -144,6 +153,17 @@ the currently configured images and restart the selected mode:
 cd voxhold-deploy
 ./update.sh
 ```
+
+Certificate management requires no separate cron job or systemd timer. Inspect
+Caddy's status and certificate activity with:
+
+```bash
+docker compose ps caddy
+docker compose logs --tail=100 caddy
+```
+
+Both domain and IP certificate state is stored in the persistent `caddy_data`
+volume.
 
 To switch the official backend to another exact release and update the stack:
 
