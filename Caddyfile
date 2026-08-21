@@ -3,5 +3,16 @@
 # is mounted explicitly.
 
 {$PUBLIC_HOST} {
-	reverse_proxy {$EDGE_UPSTREAM}
+	# Keep the public API independent from the selected web client. Caddy also
+	# handles WebSocket upgrades for /api/v1/ws automatically.
+	@backend path /api/* /healthz
+	handle @backend {
+		reverse_proxy backend:8080
+	}
+
+	# In server-only mode this is the backend. In web mode it is the selected
+	# official or third-party frontend container.
+	handle {
+		reverse_proxy {$EDGE_UPSTREAM}
+	}
 }

@@ -11,10 +11,10 @@ fi
 
 edge_upstream="$(awk -F= '$1 == "EDGE_UPSTREAM" {print $2}' .env | tr -d '\"')"
 compose_args=()
-if [[ "$edge_upstream" == "frontend:8080" ]]; then
+if [[ "$edge_upstream" == frontend:* ]]; then
     compose_args=(--profile web)
 fi
 
-docker compose pull
+docker compose "${compose_args[@]}" pull
 docker compose "${compose_args[@]}" up -d --remove-orphans
 docker compose ps

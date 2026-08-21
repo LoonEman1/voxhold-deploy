@@ -22,8 +22,9 @@ dotenv_quote() {
     printf '"%s"' "$value"
 }
 
-image_owner="looneman1"
-version="latest"
+backend_image="ghcr.io/looneman1/voxhold-backend:latest"
+frontend_image="ghcr.io/looneman1/voxhold-frontend:latest"
+frontend_port="8080"
 
 echo "Deployment mode:"
 echo "  1) backend + native client only"
@@ -32,9 +33,24 @@ read -r -p "Choose [1/2]: " mode
 
 case "$mode" in
     1) edge_upstream="backend:8080"; compose_args=() ;;
-    2) edge_upstream="frontend:8080"; compose_args=(--profile web) ;;
+    2) compose_args=(--profile web) ;;
     *) echo "Choose 1 or 2." >&2; exit 1 ;;
 esac
+
+read -r -p "Backend image [$backend_image]: " selected_backend_image
+backend_image=${selected_backend_image:-$backend_image}
+
+if [[ "$mode" == "2" ]]; then
+    read -r -p "Frontend image [$frontend_image]: " selected_frontend_image
+    frontend_image=${selected_frontend_image:-$frontend_image}
+    read -r -p "Frontend internal port [$frontend_port]: " selected_frontend_port
+    frontend_port=${selected_frontend_port:-$frontend_port}
+    if [[ ! "$frontend_port" =~ ^[0-9]+$ ]] || (( frontend_port < 1 || frontend_port > 65535 )); then
+        echo "Frontend port must be between 1 and 65535." >&2
+        exit 1
+    fi
+    edge_upstream="frontend:$frontend_port"
+fi
 
 read -r -p "Public domain or IP address: " public_host
 if [[ -z "$public_host" || "$public_host" =~ [[:space:]] ]]; then
@@ -58,9 +74,9 @@ if [[ "$public_host" =~ ^[0-9a-fA-F:.]+$ ]]; then
 fi
 
 cat > .env <<EOF
-VOXHOLD_BACKEND_IMAGE=$(dotenv_quote "ghcr.io/$image_owner/voxhold-backend")
-VOXHOLD_FRONTEND_IMAGE=$(dotenv_quote "ghcr.io/$image_owner/voxhold-frontend")
-VOXHOLD_VERSION=$(dotenv_quote "$version")
+VOXHOLD_BACKEND_IMAGE=$(dotenv_quote "$backend_image")
+VOXHOLD_FRONTEND_IMAGE=$(dotenv_quote "$frontend_image")
+VOXHOLD_FRONTEND_PORT=$(dotenv_quote "$frontend_port")
 PUBLIC_HOST=$(dotenv_quote "$public_host")
 EDGE_UPSTREAM=$(dotenv_quote "$edge_upstream")
 DATABASE_PATH=/app/data/voxhold.db
@@ -81,7 +97,7 @@ WEBRTC_STREAM_MAX_AUDIO_BITRATE_KBPS=320
 WEBRTC_ICE_SERVERS=
 WEBRTC_ICE_USERNAME=
 WEBRTC_ICE_CREDENTIAL=
-TRUST_PROXY_HEADERS=false
+TRUST_PROXY_HEADERS=true
 HTTP_RATE_LIMIT_RPS=25
 HTTP_RATE_LIMIT_BURST=50
 HTTP_WRITE_RATE_LIMIT_RPS=8

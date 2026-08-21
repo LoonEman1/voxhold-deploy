@@ -1,55 +1,96 @@
 # Voxhold deploy
 
-Production deployment for Voxhold. The deploy project runs published Docker
-images; it does not require cloning the backend or frontend source code.
+Production deployment for Voxhold. This repository runs published container
+images and does not require backend or frontend source code on the server.
 
-## Modes
+## Deployment modes
 
-The installer supports two modes:
+The installer supports:
 
-- native-only: backend, migrations, bootstrap and Caddy;
-- fullstack: the same services plus the frontend.
+- backend-only for native or independently hosted clients;
+- backend with the official Voxhold website;
+- backend with any compatible third-party frontend image.
 
-In native-only mode Caddy proxies HTTPS/WebSocket traffic directly to the
-backend. In fullstack mode it proxies to the frontend, which serves the SPA
-and forwards `/api` and WebSocket traffic to the backend.
+Caddy owns the public HTTP/HTTPS ports. Requests under `/api/*`, including the
+`/api/v1/ws` WebSocket endpoint, always go directly to the Voxhold backend.
+All other requests go to the selected frontend in web mode. A custom frontend
+therefore does not need to bundle an API reverse proxy.
 
 ## Install
 
-Install Docker Engine and Docker Compose v2 on a Linux VPS, then run:
+Install Docker Engine, Docker Compose v2 and Git on a Linux VPS, then clone this
+repository:
 
 ```bash
+git clone https://github.com/LoonEman1/voxhold-deploy.git
+cd voxhold-deploy
 chmod +x install.sh update.sh backup.sh
 ./install.sh
 ```
 
-The script uses the public `LoonEman1` images (lowercase in the registry path)
-with the `latest` tag and asks
-for the deployment mode, public host, instance name and initial owner
-credentials. It writes `.env` with mode `600` and never commits it.
+The installer asks for complete backend and frontend image references. Defaults
+use the official public images:
+
+```text
+ghcr.io/looneman1/voxhold-backend:latest
+ghcr.io/looneman1/voxhold-frontend:latest
+```
+
+It writes a private `.env` file with mode `600`; that file is excluded from Git.
+For reproducible production updates, prefer a release tag or an immutable image
+digest instead of `latest`.
 
 For a public website, use a domain whose A/AAAA record points to the VPS and
-open TCP ports 80 and 443. Caddy obtains and renews the certificate. For an IP
-address, Caddy's default certificate is locally trusted rather than publicly
-trusted; clients must install the Caddy CA or an externally issued IP
-certificate must be mounted.
-
-Open the configured WebRTC UDP ports as well:
+open TCP ports 80 and 443. Caddy obtains and renews the certificate. Also open:
 
 - `50000/udp` for voice;
 - `50001/udp` for screen sharing.
 
-Do not expose backend port 8080 or frontend port 8080 to the Internet.
+Backend and frontend HTTP ports are only available inside the Compose network.
+
+## Using a custom frontend
+
+Choose web mode in `install.sh`, enter the third-party image reference and the
+port that image listens on. The same values can be changed later in `.env`:
+
+```dotenv
+VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui:v1.2.0
+VOXHOLD_FRONTEND_PORT=8080
+EDGE_UPSTREAM=frontend:8080
+```
+
+A compatible frontend image must:
+
+- serve its website over HTTP on the configured internal port;
+- call the Voxhold API with same-origin `/api/v1/...` URLs;
+- connect WebSocket clients to same-origin `/api/v1/ws`;
+- contain all required runtime assets and configuration.
+
+The image does not need to expose a host port or proxy requests to the backend.
+Only run images that you trust. A private registry image requires `docker login`
+on the server before installation or update.
+
+## Independent image versions
+
+Backend and frontend references are independent. Both tags and digests work:
+
+```dotenv
+VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:sha-<commit>
+VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
+```
+
+The migration and bootstrap jobs always use exactly the same image as the
+backend service.
 
 ## Update and backup
 
-The installer and updater always pull the `latest` tag, then run:
+Pull and restart the configured mode:
 
 ```bash
 ./update.sh
 ```
 
-Create a consistent SQLite backup with:
+Create a consistent SQLite backup:
 
 ```bash
 ./backup.sh
@@ -57,8 +98,8 @@ Create a consistent SQLite backup with:
 
 The backup briefly stops the backend and leaves the Docker volumes intact.
 
-If you are migrating an existing SQLite volume created by an older root
-container, fix its ownership once before the first start:
+If an existing SQLite volume was created by an older root container, fix its
+ownership once before the first start:
 
 ```bash
 docker volume ls | grep voxhold_data
@@ -67,15 +108,3 @@ docker run --rm --user 0 \
   alpine:3.22 \
   sh -c 'chown -R 10001:10001 /app/data && chmod 770 /app/data'
 ```
-
-## Publishing images
-
-The backend and frontend repositories should publish the `latest` tag to GHCR
-for the installer, for example:
-
-```text
-ghcr.io/looneman1/voxhold-backend:latest
-ghcr.io/looneman1/voxhold-frontend:latest
-```
-
-For private images, log in to GHCR on the VPS before running `install.sh`.
