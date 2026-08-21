@@ -48,6 +48,57 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
+is_ipv4_address() {
+    local address="$1"
+    local octets=()
+    local octet
+    IFS='.' read -r -a octets <<<"$address"
+    (( ${#octets[@]} == 4 )) || return 1
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+        (( 10#$octet <= 255 )) || return 1
+    done
+}
+
+is_ipv6_address() {
+    local address="$1"
+    [[ "$address" == *:* ]] && [[ "$address" =~ ^[0-9a-fA-F:]+$ ]]
+}
+
+# Upgrade .env files created before public IP certificates were supported.
+if ! grep -q '^VOXHOLD_CADDYFILE=' .env; then
+    public_host="$(awk -F= '$1 == "PUBLIC_HOST" {print $2}' .env | tail -n 1 | tr -d '\"')"
+    tls_mode="domain"
+    caddyfile="./Caddyfile"
+    caddy_site_address="$public_host"
+    if is_ipv4_address "$public_host" || is_ipv6_address "$public_host"; then
+        tls_mode="ip"
+        caddyfile="./Caddyfile.ip"
+        if is_ipv6_address "$public_host"; then
+            caddy_site_address="[$public_host]"
+        fi
+    fi
+
+    migration_env="$(mktemp "$DEPLOY_DIR/.env.migration.XXXXXX")"
+    awk \
+        -v mode="$tls_mode" \
+        -v caddyfile="$caddyfile" \
+        -v site="$caddy_site_address" '
+        { print }
+        /^VOXHOLD_TLS_MODE=/ { has_mode = 1 }
+        /^CADDY_SITE_ADDRESS=/ { has_site = 1 }
+        END {
+            if (!has_mode) print "VOXHOLD_TLS_MODE=\"" mode "\""
+            print "VOXHOLD_CADDYFILE=\"" caddyfile "\""
+            if (!has_site) print "CADDY_SITE_ADDRESS=\"" site "\""
+        }
+    ' .env >"$migration_env"
+    chmod 600 "$migration_env"
+    mv -- "$migration_env" .env
+    echo "TLS configuration migrated: $tls_mode"
+    echo "Конфигурация TLS обновлена: $tls_mode"
+fi
+
 if [[ -n "$backend_version" ]]; then
     backend_image="ghcr.io/looneman1/voxhold-backend:$backend_version"
     temporary_env="$(mktemp "$DEPLOY_DIR/.env.tmp.XXXXXX")"

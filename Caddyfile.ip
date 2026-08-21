@@ -1,0 +1,21 @@
+# Caddy persists its ACME state in /data, renews automatically, and retries
+# after server outages or temporary network and validation failures.
+
+{$CADDY_SITE_ADDRESS} {
+	tls {
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			profile shortlived
+		}
+		# Renew around half-life, leaving several days for retries.
+		renewal_window_ratio 0.5
+	}
+
+	@backend path /api/* /healthz
+	handle @backend {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy {$EDGE_UPSTREAM}
+	}
+}

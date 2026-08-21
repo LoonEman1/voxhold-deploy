@@ -37,8 +37,8 @@ if [[ "$language" == "ru" ]]; then
     prompt_owner_username="Имя владельца [owner]: "
     prompt_owner_password="Пароль владельца (пусто = сгенерировать один раз): "
     prompt_webrtc_ip="Публичный WebRTC IP"
-    msg_ip_warning="Предупреждение: для IP-адресов Caddy по умолчанию использует локально доверенный сертификат."
-    msg_ip_hint="Нативные клиенты должны доверять этому CA; для публичного сайта используйте домен или подключите IP-сертификат."
+    msg_ip_warning="Caddy выпустит для IP-адреса публично доверенный короткоживущий сертификат Let's Encrypt."
+    msg_ip_hint="Порты 80/tcp и 443/tcp должны быть доступны из интернета; Caddy автоматически продлевает сертификат и повторяет неудачные попытки."
     msg_systemd_missing="Не удалось автоматически включить Docker при загрузке. Убедитесь, что Docker запускается вместе с системой."
     msg_docker_enable_failed="Не удалось включить службу Docker. Контейнеры настроены на автозапуск, но Docker также должен запускаться вместе с системой."
     msg_pulling="Загрузка образов Voxhold..."
@@ -66,8 +66,8 @@ else
     prompt_owner_username="Owner username [owner]: "
     prompt_owner_password="Owner password (empty = generate once): "
     prompt_webrtc_ip="Public WebRTC IP"
-    msg_ip_warning="Warning: Caddy uses a locally trusted certificate for IP addresses by default."
-    msg_ip_hint="Native clients must trust that CA; for a public website, use a domain or mount an IP certificate."
+    msg_ip_warning="Caddy will issue a publicly trusted, short-lived Let's Encrypt certificate for the IP address."
+    msg_ip_hint="TCP ports 80 and 443 must be reachable from the internet; Caddy renews the certificate automatically and retries failures."
     msg_systemd_missing="Could not enable Docker at boot automatically. Make sure Docker starts with the system."
     msg_docker_enable_failed="Could not enable the Docker service. Containers are configured to restart, but Docker must also start with the system."
     msg_pulling="Pulling Voxhold images..."
@@ -96,6 +96,23 @@ dotenv_quote() {
     value=${value//\\/\\\\}
     value=${value//\"/\\\"}
     printf '"%s"' "$value"
+}
+
+is_ipv4_address() {
+    local address="$1"
+    local octets=()
+    local octet
+    IFS='.' read -r -a octets <<<"$address"
+    (( ${#octets[@]} == 4 )) || return 1
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+        (( 10#$octet <= 255 )) || return 1
+    done
+}
+
+is_ipv6_address() {
+    local address="$1"
+    [[ "$address" == *:* ]] && [[ "$address" =~ ^[0-9a-fA-F:]+$ ]]
 }
 
 backend_image="ghcr.io/looneman1/voxhold-backend:0.1.0"
@@ -157,7 +174,15 @@ printf '\n'
 read -r -p "$prompt_webrtc_ip [$public_host]: " webrtc_public_ip
 webrtc_public_ip=${webrtc_public_ip:-$public_host}
 
-if [[ "$public_host" =~ ^[0-9a-fA-F:.]+$ ]]; then
+tls_mode="domain"
+caddy_site_address="$public_host"
+caddyfile="./Caddyfile"
+if is_ipv4_address "$public_host" || is_ipv6_address "$public_host"; then
+    tls_mode="ip"
+    caddyfile="./Caddyfile.ip"
+    if is_ipv6_address "$public_host"; then
+        caddy_site_address="[$public_host]"
+    fi
     echo "$msg_ip_warning"
     echo "$msg_ip_hint"
 fi
@@ -167,7 +192,10 @@ VOXHOLD_BACKEND_IMAGE=$(dotenv_quote "$backend_image")
 VOXHOLD_FRONTEND_IMAGE=$(dotenv_quote "$frontend_image")
 VOXHOLD_FRONTEND_PORT=$(dotenv_quote "$frontend_port")
 VOXHOLD_RESTART_POLICY=$(dotenv_quote "$restart_policy")
+VOXHOLD_TLS_MODE=$(dotenv_quote "$tls_mode")
+VOXHOLD_CADDYFILE=$(dotenv_quote "$caddyfile")
 PUBLIC_HOST=$(dotenv_quote "$public_host")
+CADDY_SITE_ADDRESS=$(dotenv_quote "$caddy_site_address")
 EDGE_UPSTREAM=$(dotenv_quote "$edge_upstream")
 DATABASE_PATH=/app/data/voxhold.db
 MIGRATIONS_PATH=/app/migrations
@@ -232,5 +260,5 @@ docker compose "${compose_args[@]}" up -d
 docker compose ps
 
 echo
-echo "$msg_running https://$public_host"
-echo "$msg_native_url https://$public_host"
+echo "$msg_running https://$caddy_site_address"
+echo "$msg_native_url https://$caddy_site_address"
