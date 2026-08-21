@@ -95,7 +95,7 @@ certificate is configured.
 The defaults are:
 
 ```text
-ghcr.io/looneman1/voxhold-backend:latest
+ghcr.io/looneman1/voxhold-backend:0.1.0
 ghcr.io/looneman1/voxhold-frontend:latest
 ```
 
@@ -103,14 +103,16 @@ Backend and frontend references are independent and accept both tags and
 digests:
 
 ```dotenv
-VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:sha-<commit>
+VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:0.1.0
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
-For reproducible updates, prefer a release tag or immutable digest instead of
-`latest`. Private images require `docker login` before installation or update.
-Migration and bootstrap jobs always use exactly the same image reference as the
-backend service.
+Backend images are published only from Git tags such as `v0.1.0`. The image
+tags `0.1.0`, `0.1` and `latest` then point to that release. Deploy pins the
+exact version by default so an ordinary restart cannot silently upgrade the
+backend. An OCI digest remains the immutable option. Private images require
+`docker login` before installation or update. Migration and bootstrap jobs
+always use exactly the same image reference as the backend service.
 
 ## Custom frontend contract
 
@@ -136,12 +138,24 @@ container images that you trust.
 ## Configuration, updates and backups
 
 The installer creates `.env` with mode `600`; it is excluded from Git. To pull
-the configured images and restart the selected mode:
+the currently configured images and restart the selected mode:
 
 ```bash
 cd voxhold-deploy
 ./update.sh
 ```
+
+To switch the official backend to another exact release and update the stack:
+
+```bash
+./backup.sh
+./update.sh --backend-version 0.2.0
+```
+
+The command also accepts the Git-style form `v0.2.0`. It deliberately replaces
+`VOXHOLD_BACKEND_IMAGE` with the official GHCR image; edit `.env` directly when
+using a fork, custom registry or immutable digest. Review release notes and
+make a backup before changing versions.
 
 Create a consistent SQLite backup with:
 

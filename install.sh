@@ -98,7 +98,7 @@ dotenv_quote() {
     printf '"%s"' "$value"
 }
 
-backend_image="ghcr.io/looneman1/voxhold-backend:latest"
+backend_image="ghcr.io/looneman1/voxhold-backend:0.1.0"
 frontend_image="ghcr.io/looneman1/voxhold-frontend:latest"
 frontend_port="8080"
 

@@ -1,6 +1,6 @@
 services:
   migrate:
-    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:0.1.0}
     env_file:
       - .env
     entrypoint: ["/bin/sh", "-c"]
@@ -29,7 +29,7 @@ services:
       - no-new-privileges:true
 
   bootstrap:
-    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:0.1.0}
     env_file:
       - .env
     entrypoint: ["voxhold-bootstrap"]
@@ -49,7 +49,7 @@ services:
       - no-new-privileges:true
 
   backend:
-    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:0.1.0}
     env_file:
       - .env
     depends_on:
