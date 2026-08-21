@@ -40,6 +40,13 @@ It writes a private `.env` file with mode `600`; that file is excluded from Git.
 For reproducible production updates, prefer a release tag or an immutable image
 digest instead of `latest`.
 
+At startup, the installer asks for English or Russian and uses the selected
+language for all further prompts. It also asks whether the stack should start
+automatically after a server reboot. The recommended answer enables the
+`unless-stopped` restart policy and attempts to enable the Docker systemd
+service. Answering no stores the `no` restart policy; the stack still starts
+immediately during installation but must be started manually after a reboot.
+
 For a public website, use a domain whose A/AAAA record points to the VPS and
 open TCP ports 80 and 443. Caddy obtains and renews the certificate. Also open:
 
