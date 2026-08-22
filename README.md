@@ -68,6 +68,11 @@ At startup, select English or Russian. The installer then asks for the mode,
 container images, public host, initial owner account and whether Voxhold should
 start automatically after a server reboot.
 
+If no domain is available, leave the public host empty. The installer detects
+the server's external IP over HTTPS and uses it for Caddy and WebRTC. When a
+domain is entered, the detected server IP is offered separately as the WebRTC
+address.
+
 The recommended autostart option applies the `unless-stopped` restart policy to
 backend, frontend and Caddy, and attempts to enable the Docker systemd service.
 Answering no applies `restart: no`; the stack starts during installation but
@@ -104,7 +109,7 @@ keys. The public IP must remain assigned to the server, and ports `80/tcp` and
 The defaults are:
 
 ```text
-ghcr.io/looneman1/voxhold-backend:0.1.0
+ghcr.io/looneman1/voxhold-backend:latest
 ghcr.io/looneman1/voxhold-frontend:latest
 ```
 
@@ -112,14 +117,15 @@ Backend and frontend references are independent and accept both tags and
 digests:
 
 ```dotenv
-VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:0.1.0
+VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:latest
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
 Backend images are published only from Git tags such as `v0.1.0`. The image
-tags `0.1.0`, `0.1` and `latest` then point to that release. Deploy pins the
-exact version by default so an ordinary restart cannot silently upgrade the
-backend. An OCI digest remains the immutable option. Private images require
+tags `0.1.0`, `0.1` and `latest` then point to that release. Deploy uses
+`latest` by default, so `./update.sh` pulls the latest stable backend. Use an
+exact tag or OCI digest when a production deployment must remain pinned.
+Private images require
 `docker login` before installation or update. Migration and bootstrap jobs
 always use exactly the same image reference as the backend service.
 

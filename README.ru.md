@@ -67,6 +67,10 @@ bash bootstrap.sh
 образы контейнеров, публичный адрес, данные первого владельца и необходимость
 автозапуска Voxhold после перезагрузки сервера.
 
+Если домена нет, оставьте публичный адрес пустым: установщик определит внешний
+IP сервера через HTTPS и использует его для Caddy и WebRTC. Если указан домен,
+установщик отдельно определит IP сервера и предложит его как адрес WebRTC.
+
 Рекомендуемый вариант автозапуска назначает backend, frontend и Caddy политику
 `unless-stopped`, а также пытается включить службу Docker через systemd. Ответ
 «нет» назначает `restart: no`: при установке стек запустится, но после
@@ -103,21 +107,22 @@ IP-сертификат действует около шести дней. Caddy
 По умолчанию используются:
 
 ```text
-ghcr.io/looneman1/voxhold-backend:0.1.0
+ghcr.io/looneman1/voxhold-backend:latest
 ghcr.io/looneman1/voxhold-frontend:latest
 ```
 
 Ссылки на backend и frontend независимы и принимают как теги, так и digest:
 
 ```dotenv
-VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:0.1.0
+VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:latest
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
 Образы backend публикуются только из Git-тегов наподобие `v0.1.0`. После этого
 теги образа `0.1.0`, `0.1` и `latest` указывают на данный релиз. Deploy по
-умолчанию закрепляет точную версию, поэтому обычный перезапуск не обновит backend
-неожиданно. OCI digest остаётся неизменяемым вариантом. Для приватных образов
+умолчанию использует `latest`, поэтому `./update.sh` загружает последний
+стабильный backend. Для предсказуемого production-развёртывания можно указать
+точный тег или OCI digest. Для приватных образов
 перед установкой или обновлением выполните `docker login`. Задачи миграции и
 первоначальной настройки всегда используют точно тот же образ, что и сервис
 backend.

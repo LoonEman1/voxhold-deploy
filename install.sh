@@ -20,6 +20,7 @@ if [[ "$language" == "ru" ]]; then
     msg_linux_required="Развёртывание Voxhold поддерживается только на Linux-серверах."
     msg_docker_required="Требуется Docker. Установите Docker Engine и Docker Compose."
     msg_compose_required="Требуется Docker Compose v2."
+    msg_curl_required="Требуется curl для определения публичного IP."
     msg_deployment_mode="Режим установки:"
     msg_mode_native="только backend + нативный клиент"
     msg_mode_web="backend + сайт + нативный клиент"
@@ -31,12 +32,15 @@ if [[ "$language" == "ru" ]]; then
     msg_port_error="Порт frontend должен быть от 1 до 65535."
     prompt_autostart="Запускать Voxhold автоматически после перезагрузки сервера? [Д/н]: "
     msg_yes_no_error="Ответьте да или нет."
-    prompt_public_host="Публичный домен или IP-адрес: "
-    msg_public_host_error="Необходимо указать публичный домен или IP-адрес."
+    prompt_public_host="Публичный домен или IP-адрес (пусто = определить IP автоматически): "
+    msg_detecting_public_ip="Определение публичного IP сервера..."
+    msg_detected_public_ip="Обнаружен публичный IP:"
+    msg_public_ip_detection_error="Не удалось автоматически определить публичный IP. Запустите установщик снова и укажите домен или IP вручную."
     prompt_instance_name="Название инстанса [Voxhold]: "
     prompt_owner_username="Имя владельца [owner]: "
     prompt_owner_password="Пароль владельца (пусто = сгенерировать один раз): "
     prompt_webrtc_ip="Публичный WebRTC IP"
+    msg_webrtc_ip_error="Публичный WebRTC IP должен быть корректным IPv4- или IPv6-адресом."
     msg_ip_warning="Caddy выпустит для IP-адреса публично доверенный короткоживущий сертификат Let's Encrypt."
     msg_ip_hint="Порты 80/tcp и 443/tcp должны быть доступны из интернета; Caddy автоматически продлевает сертификат и повторяет неудачные попытки."
     msg_systemd_missing="Не удалось автоматически включить Docker при загрузке. Убедитесь, что Docker запускается вместе с системой."
@@ -49,6 +53,7 @@ else
     msg_linux_required="Voxhold deployment is supported only on Linux hosts."
     msg_docker_required="Docker is required. Install Docker Engine and Docker Compose first."
     msg_compose_required="Docker Compose v2 is required."
+    msg_curl_required="curl is required to detect the public IP."
     msg_deployment_mode="Deployment mode:"
     msg_mode_native="backend + native client only"
     msg_mode_web="backend + website + native client"
@@ -60,12 +65,15 @@ else
     msg_port_error="Frontend port must be between 1 and 65535."
     prompt_autostart="Start Voxhold automatically after a server reboot? [Y/n]: "
     msg_yes_no_error="Answer yes or no."
-    prompt_public_host="Public domain or IP address: "
-    msg_public_host_error="A public domain or IP address is required."
+    prompt_public_host="Public domain or IP address (empty = detect public IP automatically): "
+    msg_detecting_public_ip="Detecting the server's public IP..."
+    msg_detected_public_ip="Detected public IP:"
+    msg_public_ip_detection_error="Could not detect the public IP automatically. Run the installer again and enter a domain or IP manually."
     prompt_instance_name="Instance name [Voxhold]: "
     prompt_owner_username="Owner username [owner]: "
     prompt_owner_password="Owner password (empty = generate once): "
     prompt_webrtc_ip="Public WebRTC IP"
+    msg_webrtc_ip_error="Public WebRTC IP must be a valid IPv4 or IPv6 address."
     msg_ip_warning="Caddy will issue a publicly trusted, short-lived Let's Encrypt certificate for the IP address."
     msg_ip_hint="TCP ports 80 and 443 must be reachable from the internet; Caddy renews the certificate automatically and retries failures."
     msg_systemd_missing="Could not enable Docker at boot automatically. Make sure Docker starts with the system."
@@ -88,6 +96,11 @@ fi
 
 if ! docker compose version >/dev/null 2>&1; then
     echo "$msg_compose_required" >&2
+    exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "$msg_curl_required" >&2
     exit 1
 fi
 
@@ -115,7 +128,39 @@ is_ipv6_address() {
     [[ "$address" == *:* ]] && [[ "$address" =~ ^[0-9a-fA-F:]+$ ]]
 }
 
-backend_image="ghcr.io/looneman1/voxhold-backend:0.1.0"
+detect_public_ip() {
+    local endpoint
+    local detected_ip
+
+    for endpoint in \
+        "https://api.ipify.org" \
+        "https://checkip.amazonaws.com" \
+        "https://icanhazip.com"; do
+
+        detected_ip="$(
+            curl \
+                --fail \
+                --silent \
+                --show-error \
+                --location \
+                --max-time 5 \
+                --proto '=https' \
+                --tlsv1.2 \
+                "$endpoint" 2>/dev/null || true
+        )"
+        detected_ip="${detected_ip//$'\r'/}"
+        detected_ip="${detected_ip//$'\n'/}"
+
+        if is_ipv4_address "$detected_ip" || is_ipv6_address "$detected_ip"; then
+            printf '%s' "$detected_ip"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+backend_image="ghcr.io/looneman1/voxhold-backend:latest"
 frontend_image="ghcr.io/looneman1/voxhold-frontend:latest"
 frontend_port="8080"
 
@@ -159,8 +204,15 @@ if [[ "$mode" == "2" ]]; then
 fi
 
 read -r -p "$prompt_public_host" public_host
-if [[ -z "$public_host" || "$public_host" =~ [[:space:]] ]]; then
-    echo "$msg_public_host_error" >&2
+if [[ -z "$public_host" ]]; then
+    echo "$msg_detecting_public_ip"
+    if ! public_host="$(detect_public_ip)"; then
+        echo "$msg_public_ip_detection_error" >&2
+        exit 1
+    fi
+    echo "$msg_detected_public_ip $public_host"
+elif [[ "$public_host" =~ [[:space:]] ]]; then
+    echo "$msg_public_ip_detection_error" >&2
     exit 1
 fi
 
@@ -171,8 +223,24 @@ bootstrap_username=${bootstrap_username:-owner}
 read -r -s -p "$prompt_owner_password" bootstrap_password
 printf '\n'
 
-read -r -p "$prompt_webrtc_ip [$public_host]: " webrtc_public_ip
-webrtc_public_ip=${webrtc_public_ip:-$public_host}
+default_webrtc_ip="$public_host"
+if ! is_ipv4_address "$default_webrtc_ip" &&
+   ! is_ipv6_address "$default_webrtc_ip"; then
+    default_webrtc_ip="$(detect_public_ip || true)"
+fi
+
+if [[ -n "$default_webrtc_ip" ]]; then
+    read -r -p "$prompt_webrtc_ip [$default_webrtc_ip]: " webrtc_public_ip
+    webrtc_public_ip=${webrtc_public_ip:-$default_webrtc_ip}
+else
+    read -r -p "$prompt_webrtc_ip: " webrtc_public_ip
+fi
+
+if ! is_ipv4_address "$webrtc_public_ip" &&
+   ! is_ipv6_address "$webrtc_public_ip"; then
+    echo "$msg_webrtc_ip_error" >&2
+    exit 1
+fi
 
 tls_mode="domain"
 caddy_site_address="$public_host"

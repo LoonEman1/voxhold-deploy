@@ -1,3 +1,9 @@
+{
+	# IP literals are commonly omitted from TLS SNI. Inside Docker the local
+	# socket address is the container IP, so select the public IP certificate.
+	default_sni {$PUBLIC_HOST}
+}
+
 # Caddy persists its ACME state in /data, renews automatically, and retries
 # after server outages or temporary network and validation failures.
 
