@@ -31,6 +31,10 @@ The bootstrap downloads a repository snapshot into `./voxhold-deploy`, checks
 the required files and opens the interactive installer. Git is not used. The
 target directory must not already exist.
 
+If the owner password prompt is left empty, the installer generates it during
+the first bootstrap and prints it in the final installation summary. Save it
+immediately: it cannot be recovered from the database later.
+
 To install into another directory:
 
 ```bash
