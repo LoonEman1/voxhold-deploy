@@ -8,7 +8,8 @@ umask 077
 echo "Language / Язык:"
 echo "  1) English"
 echo "  2) Русский"
-read -r -p "Choose / Выберите [1/2]: " language_choice
+printf 'Choose / Выберите [1/2]: '
+read -r language_choice
 
 case "$language_choice" in
     1) language="en" ;;
@@ -167,7 +168,8 @@ frontend_port="8080"
 echo "$msg_deployment_mode"
 echo "  1) $msg_mode_native"
 echo "  2) $msg_mode_web"
-read -r -p "$prompt_choose" mode
+printf '%s' "$prompt_choose"
+read -r mode
 
 case "$mode" in
     1) edge_upstream="backend:8080"; compose_args=() ;;
@@ -175,7 +177,8 @@ case "$mode" in
     *) echo "$msg_choose_error" >&2; exit 1 ;;
 esac
 
-read -r -p "$prompt_autostart" autostart_answer
+printf '%s' "$prompt_autostart"
+read -r autostart_answer
 case "$autostart_answer" in
     ""|y|Y|yes|YES|Yes|д|Д|да|ДА|Да)
         restart_policy="unless-stopped"
@@ -188,13 +191,16 @@ case "$autostart_answer" in
     *) echo "$msg_yes_no_error" >&2; exit 1 ;;
 esac
 
-read -r -p "$prompt_backend_image [$backend_image]: " selected_backend_image
+printf '%s' "$prompt_backend_image [$backend_image]: "
+read -r selected_backend_image
 backend_image=${selected_backend_image:-$backend_image}
 
 if [[ "$mode" == "2" ]]; then
-    read -r -p "$prompt_frontend_image [$frontend_image]: " selected_frontend_image
+    printf '%s' "$prompt_frontend_image [$frontend_image]: "
+    read -r selected_frontend_image
     frontend_image=${selected_frontend_image:-$frontend_image}
-    read -r -p "$prompt_frontend_port [$frontend_port]: " selected_frontend_port
+    printf '%s' "$prompt_frontend_port [$frontend_port]: "
+    read -r selected_frontend_port
     frontend_port=${selected_frontend_port:-$frontend_port}
     if [[ ! "$frontend_port" =~ ^[0-9]+$ ]] || (( frontend_port < 1 || frontend_port > 65535 )); then
         echo "$msg_port_error" >&2
@@ -203,7 +209,8 @@ if [[ "$mode" == "2" ]]; then
     edge_upstream="frontend:$frontend_port"
 fi
 
-read -r -p "$prompt_public_host" public_host
+printf '%s' "$prompt_public_host"
+read -r public_host
 if [[ -z "$public_host" ]]; then
     echo "$msg_detecting_public_ip"
     if ! public_host="$(detect_public_ip)"; then
@@ -216,11 +223,14 @@ elif [[ "$public_host" =~ [[:space:]] ]]; then
     exit 1
 fi
 
-read -r -p "$prompt_instance_name" instance_name
+printf '%s' "$prompt_instance_name"
+read -r instance_name
 instance_name=${instance_name:-Voxhold}
-read -r -p "$prompt_owner_username" bootstrap_username
+printf '%s' "$prompt_owner_username"
+read -r bootstrap_username
 bootstrap_username=${bootstrap_username:-owner}
-read -r -s -p "$prompt_owner_password" bootstrap_password
+printf '%s' "$prompt_owner_password"
+read -r -s bootstrap_password
 printf '\n'
 
 default_webrtc_ip="$public_host"
@@ -230,10 +240,12 @@ if ! is_ipv4_address "$default_webrtc_ip" &&
 fi
 
 if [[ -n "$default_webrtc_ip" ]]; then
-    read -r -p "$prompt_webrtc_ip [$default_webrtc_ip]: " webrtc_public_ip
+    printf '%s' "$prompt_webrtc_ip [$default_webrtc_ip]: "
+    read -r webrtc_public_ip
     webrtc_public_ip=${webrtc_public_ip:-$default_webrtc_ip}
 else
-    read -r -p "$prompt_webrtc_ip: " webrtc_public_ip
+    printf '%s' "$prompt_webrtc_ip: "
+    read -r webrtc_public_ip
 fi
 
 if ! is_ipv4_address "$webrtc_public_ip" &&
