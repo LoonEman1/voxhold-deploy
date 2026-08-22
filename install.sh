@@ -50,6 +50,10 @@ if [[ "$language" == "ru" ]]; then
     msg_starting="Запуск Voxhold..."
     msg_running="Voxhold доступен по адресу:"
     msg_native_url="Базовый URL нативного клиента:"
+    msg_generated_owner_password="Сгенерированный пароль владельца:"
+    msg_save_generated_owner_password="Сохраните этот пароль сейчас: повторно он не будет показан."
+    msg_generated_password_unavailable="Не удалось прочитать сгенерированный пароль из журнала bootstrap."
+    msg_generated_password_logs_hint="Проверьте журнал командой: docker compose logs bootstrap"
 else
     msg_linux_required="Voxhold deployment is supported only on Linux hosts."
     msg_docker_required="Docker is required. Install Docker Engine and Docker Compose first."
@@ -83,6 +87,10 @@ else
     msg_starting="Starting Voxhold..."
     msg_running="Voxhold is running at:"
     msg_native_url="Native client base URL:"
+    msg_generated_owner_password="Generated owner password:"
+    msg_save_generated_owner_password="Save this password now; it will not be shown again."
+    msg_generated_password_unavailable="Could not read the generated password from the bootstrap log."
+    msg_generated_password_logs_hint="Check the log with: docker compose logs bootstrap"
 fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -340,5 +348,28 @@ docker compose "${compose_args[@]}" up -d
 docker compose ps
 
 echo
+if [[ -z "$bootstrap_password" ]]; then
+    bootstrap_logs="$(
+        docker compose "${compose_args[@]}" logs --no-color bootstrap 2>&1 || true
+    )"
+    generated_owner_password=""
+    while IFS= read -r bootstrap_log_line; do
+        case "$bootstrap_log_line" in
+            *"generated one-time owner password: "*)
+                generated_owner_password="${bootstrap_log_line##*generated one-time owner password: }"
+                ;;
+        esac
+    done <<< "$bootstrap_logs"
+
+    if [[ -n "$generated_owner_password" ]]; then
+        echo "$msg_generated_owner_password $generated_owner_password"
+        echo "$msg_save_generated_owner_password"
+    else
+        echo "$msg_generated_password_unavailable" >&2
+        echo "$msg_generated_password_logs_hint" >&2
+    fi
+    unset bootstrap_logs generated_owner_password bootstrap_log_line
+    echo
+fi
 echo "$msg_running https://$caddy_site_address"
 echo "$msg_native_url https://$caddy_site_address"
