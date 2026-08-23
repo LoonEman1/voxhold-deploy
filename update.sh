@@ -136,6 +136,12 @@ if [[ "$edge_upstream" == frontend:* ]]; then
     compose_args=(--profile web)
 fi
 
+# Enable the coturn profile when TURN credentials are configured in .env.
+ice_servers="$(awk -F= '$1 == "WEBRTC_ICE_SERVERS" {print $2}' .env | tail -n 1 | tr -d '\"')"
+if [[ -n "$ice_servers" ]]; then
+    compose_args+=(--profile turn)
+fi
+
 docker compose "${compose_args[@]}" pull
 docker compose "${compose_args[@]}" up -d --remove-orphans
 docker compose ps

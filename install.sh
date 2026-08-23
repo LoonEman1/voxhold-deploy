@@ -54,6 +54,10 @@ if [[ "$language" == "ru" ]]; then
     msg_save_generated_owner_password="Сохраните этот пароль сейчас: повторно он не будет показан."
     msg_generated_password_unavailable="Не удалось прочитать сгенерированный пароль из журнала bootstrap."
     msg_generated_password_logs_hint="Проверьте журнал командой: docker compose logs bootstrap"
+    msg_prompt_turn="Включить встроенный TURN-релей (coturn) для WebRTC P2P? [Д/н]: "
+    msg_turn_enabled="TURN включён: контейнер coturn будет запущен, креды записаны в .env."
+    msg_turn_disabled="TURN отключён: WebRTC клиенты будут использовать только host-кандидаты."
+    msg_turn_firewall="Откройте на файрволе сервера порты: 3478/tcp + 3478/udp (сигналинг TURN) и 49160-49259/udp (медиа-релей)."
 else
     msg_linux_required="Voxhold deployment is supported only on Linux hosts."
     msg_docker_required="Docker is required. Install Docker Engine and Docker Compose first."
@@ -91,6 +95,10 @@ else
     msg_save_generated_owner_password="Save this password now; it will not be shown again."
     msg_generated_password_unavailable="Could not read the generated password from the bootstrap log."
     msg_generated_password_logs_hint="Check the log with: docker compose logs bootstrap"
+    msg_prompt_turn="Enable the built-in TURN relay (coturn) for WebRTC P2P? [Y/n]: "
+    msg_turn_enabled="TURN enabled: the coturn container will start, credentials written to .env."
+    msg_turn_disabled="TURN disabled: WebRTC clients will only use host candidates."
+    msg_turn_firewall="Open these ports on the server firewall: 3478/tcp + 3478/udp (TURN signaling) and 49160-49259/udp (media relay)."
 fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -262,6 +270,34 @@ if ! is_ipv4_address "$webrtc_public_ip" &&
     exit 1
 fi
 
+printf '%s' "$msg_prompt_turn"
+read -r turn_answer
+case "$turn_answer" in
+    n|N|no|NO|No|н|Н|нет|НЕТ|Нет)
+        enable_turn="false"
+        ;;
+    *)
+        enable_turn="true"
+        ;;
+esac
+
+if [[ "$enable_turn" == "true" ]]; then
+    echo "$msg_turn_enabled"
+    turn_username="voxhold"
+    turn_password="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)"
+    ice_servers="turn:${webrtc_public_ip}:3478?transport=udp,turn:${webrtc_public_ip}:3478?transport=tcp"
+    ice_username="$turn_username"
+    ice_credential="$turn_password"
+    compose_args+=(--profile turn)
+else
+    echo "$msg_turn_disabled"
+    turn_username="voxhold"
+    turn_password=""
+    ice_servers=""
+    ice_username=""
+    ice_credential=""
+fi
+
 tls_mode="domain"
 caddy_site_address="$public_host"
 caddyfile="./Caddyfile"
@@ -300,9 +336,15 @@ WEBRTC_STREAM_MAX_VIEWERS=32
 WEBRTC_STREAM_MAX_P2P_VIEWERS=8
 WEBRTC_STREAM_MAX_VIDEO_BITRATE_KBPS=16000
 WEBRTC_STREAM_MAX_AUDIO_BITRATE_KBPS=320
-WEBRTC_ICE_SERVERS=
-WEBRTC_ICE_USERNAME=
-WEBRTC_ICE_CREDENTIAL=
+TURN_USERNAME=$(dotenv_quote "$turn_username")
+TURN_PASSWORD=$(dotenv_quote "$turn_password")
+TURN_REALM=voxhold
+TURN_LISTEN_PORT=3478
+TURN_RELAY_PORT_MIN=49160
+TURN_RELAY_PORT_MAX=49259
+WEBRTC_ICE_SERVERS=$(dotenv_quote "$ice_servers")
+WEBRTC_ICE_USERNAME=$(dotenv_quote "$ice_username")
+WEBRTC_ICE_CREDENTIAL=$(dotenv_quote "$ice_credential")
 TRUST_PROXY_HEADERS=true
 HTTP_RATE_LIMIT_RPS=25
 HTTP_RATE_LIMIT_BURST=50
@@ -370,6 +412,9 @@ if [[ -z "$bootstrap_password" ]]; then
     fi
     unset bootstrap_logs generated_owner_password bootstrap_log_line
     echo
+fi
+if [[ "$enable_turn" == "true" ]]; then
+    echo "$msg_turn_firewall"
 fi
 echo "$msg_running https://$caddy_site_address"
 echo "$msg_native_url https://$caddy_site_address"
