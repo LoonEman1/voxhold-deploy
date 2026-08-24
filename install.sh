@@ -284,7 +284,7 @@ esac
 if [[ "$enable_turn" == "true" ]]; then
     echo "$msg_turn_enabled"
     turn_username="voxhold"
-    turn_password="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)"
+    turn_password="$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-40)"
     ice_servers="turn:${webrtc_public_ip}:3478?transport=udp,turn:${webrtc_public_ip}:3478?transport=tcp"
     ice_username="$turn_username"
     ice_credential="$turn_password"
