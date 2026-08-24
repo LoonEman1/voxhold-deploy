@@ -94,6 +94,11 @@ For a public website, point the domain's A/AAAA record to the server and allow:
 - `50000/udp` for voice;
 - `50001/udp` for screen sharing.
 
+With the optional built-in TURN relay, additionally allow `3478/tcp`,
+`3478/udp` and the relay range `49160-49559/udp` (see below). Do not close
+`50000/udp` or `50001/udp` after enabling TURN: direct server-mode media would
+otherwise be forced through the relay with extra latency.
+
 Backend and frontend HTTP ports are available only inside the Compose network.
 For a domain, Caddy obtains and renews its publicly trusted certificate. For a
 bare public IPv4 or IPv6 address, the installer obtains a publicly trusted
@@ -107,6 +112,63 @@ the server was powered off is therefore recovered after the next start. Keep
 the `caddy_data` Docker volume: it contains the ACME account, certificates and
 keys. The public IP must remain assigned to the server, and ports `80/tcp` and
 `443/tcp` must remain reachable for ACME validation.
+
+## WebRTC ICE configuration and TURN
+
+Browsers never receive TURN credentials at build time. The runtime path is:
+
+```text
+.env -> backend -> authenticated GET /api/v1/webrtc/config -> browser
+```
+
+The backend serves the `WEBRTC_CLIENT_ICE_*` values to authorized browser
+clients with `iceTransportPolicy: all`, so direct UDP stays the preferred
+route and TURN is only a fallback. Changing TURN settings requires just a
+backend restart — the frontend does not need to be rebuilt.
+
+The separate `WEBRTC_SERVER_ICE_*` variables configure the backend's own Pion
+sessions. They stay empty in the standard public deployment, where the backend
+publishes host candidates directly through `WEBRTC_PUBLIC_IP` and its UDP
+ports; feeding TURN to Pion would create needless relay allocations per voice
+or stream session.
+
+### Built-in coturn (profile "turn")
+
+coturn uses host networking: it binds `TURN_LISTEN_PORT` (`3478` by default,
+TCP and UDP) and the relay range directly on the host. Required firewall ports:
+
+- `3478/tcp` + `3478/udp` — TURN client transport;
+- `49160-49559/udp` — relay allocations (`TURN_RELAY_PORT_MIN`–`MAX`).
+
+Because one shared `TURN_USERNAME` serves all clients, `TURN_USER_QUOTA` must
+remain `0`; the overall allocation limit is `TURN_TOTAL_QUOTA`, sized to the
+relay range (roughly one port per allocation). Widen the range and the
+matching firewall rules together — a quota above the real port capacity would
+break allocations under load.
+
+### Networks that block plain TURN
+
+Corporate networks sometimes block TURN over UDP and TCP. The built-in coturn
+runs without TLS and cannot offer `turns:` on the same IP because Caddy owns
+`443/tcp`. Use an external managed TURN provider with a URL such as
+`turns:turn.example.com:443?transport=tcp`, and put it into
+`WEBRTC_CLIENT_ICE_SERVERS`.
+
+### Checking the runtime endpoint safely
+
+The endpoint response contains credentials. Verify it with an authorized
+request without printing the full JSON:
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $VOXHOLD_TEST_TOKEN" \
+  https://voxhold.example.com/api/v1/webrtc/config \
+  | jq '{urls: [.ice_servers[].urls], policy: .ice_transport_policy}'
+```
+
+Do not store bearer tokens or full responses in shell history or CI artifacts.
+See [README.webrtc-fixes.ru.md](README.webrtc-fixes.ru.md) for migration and
+smoke-test details.
 
 ## Container images
 
@@ -156,8 +218,11 @@ container images that you trust.
 
 ## Configuration, updates and backups
 
-The installer creates `.env` with mode `600`; it is excluded from Git. To pull
-the currently configured images and restart the selected mode:
+The installer creates `.env` with mode `600`; it is excluded from Git. The
+chosen deployment mode and TURN option are persisted as `COMPOSE_PROFILES`, so
+plain `docker compose up`, `pull` and `down` commands operate on exactly the
+services selected during installation. To pull the currently configured images
+and restart the selected mode:
 
 ```bash
 cd voxhold-deploy

@@ -120,20 +120,21 @@ services:
       - no-new-privileges:true
 
   coturn:
-    # Optional TURN relay for WebRTC (P2P between clients behind NAT).
-    # Enabled only when started with: docker compose --profile turn up
+    # Optional TURN relay for WebRTC clients: browser voice and server-stream
+    # sessions use it as fallback, and P2P connections rely on it when direct
+    # UDP paths fail. Enabled via the "turn" profile in COMPOSE_PROFILES.
     image: coturn/coturn:4-alpine
     profiles: ["turn"]
     command:
       - "-n"
-      - "--listening-port=3478"
+      - "--listening-port=${TURN_LISTEN_PORT:-3478}"
       - "--fingerprint"
       - "--lt-cred-mech"
       - "--user=${TURN_USERNAME:-voxhold}:${TURN_PASSWORD:-}"
       - "--realm=${TURN_REALM:-voxhold}"
       - "--external-ip=${WEBRTC_PUBLIC_IP:-}"
       - "--min-port=${TURN_RELAY_PORT_MIN:-49160}"
-      - "--max-port=${TURN_RELAY_PORT_MAX:-49259}"
+      - "--max-port=${TURN_RELAY_PORT_MAX:-49559}"
       - "--no-cli"
       - "--no-tls"
       - "--no-dtls"
@@ -157,8 +158,11 @@ services:
       - "--denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
       - "--denied-peer-ip=ff00::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
       - "--stale-nonce=600"
-      - "--user-quota=16"
-      - "--total-quota=2048"
+      # TURN_USERNAME is shared by all clients, so a per-user quota would cap
+      # the whole instance. Keep user-quota at 0 and bound total allocations
+      # with total-quota until per-user REST credentials are introduced.
+      - "--user-quota=${TURN_USER_QUOTA:-0}"
+      - "--total-quota=${TURN_TOTAL_QUOTA:-400}"
       - "--pidfile=/tmp/coturn.pid"
       - "--simple-log"
     # Host networking: coturn binds 3478 and the relay range directly on the

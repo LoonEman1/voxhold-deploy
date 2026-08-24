@@ -57,7 +57,7 @@ if [[ "$language" == "ru" ]]; then
     msg_prompt_turn="Включить встроенный TURN-релей (coturn) для WebRTC P2P? [Д/н]: "
     msg_turn_enabled="TURN включён: контейнер coturn будет запущен, креды записаны в .env."
     msg_turn_disabled="TURN отключён: WebRTC клиенты будут использовать только host-кандидаты."
-    msg_turn_firewall="Откройте на файрволе сервера порты: 3478/tcp + 3478/udp (сигналинг TURN) и 49160-49259/udp (медиа-релей)."
+    msg_turn_firewall_fmt='Откройте на файрволе сервера порты: %s/tcp + %s/udp (сигналинг TURN) и %s-%s/udp (медиа-релей).'
 else
     msg_linux_required="Voxhold deployment is supported only on Linux hosts."
     msg_docker_required="Docker is required. Install Docker Engine and Docker Compose first."
@@ -98,7 +98,7 @@ else
     msg_prompt_turn="Enable the built-in TURN relay (coturn) for WebRTC P2P? [Y/n]: "
     msg_turn_enabled="TURN enabled: the coturn container will start, credentials written to .env."
     msg_turn_disabled="TURN disabled: WebRTC clients will only use host candidates."
-    msg_turn_firewall="Open these ports on the server firewall: 3478/tcp + 3478/udp (TURN signaling) and 49160-49259/udp (media relay)."
+    msg_turn_firewall_fmt='Open these ports on the server firewall: %s/tcp + %s/udp (TURN signaling) and %s-%s/udp (media relay).'
 fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -188,8 +188,8 @@ printf '%s' "$prompt_choose"
 read -r mode
 
 case "$mode" in
-    1) edge_upstream="backend:8080"; compose_args=() ;;
-    2) compose_args=(--profile web) ;;
+    1) edge_upstream="backend:8080"; compose_profiles="" ;;
+    2) edge_upstream="backend:8080"; compose_profiles="web" ;;
     *) echo "$msg_choose_error" >&2; exit 1 ;;
 esac
 
@@ -281,22 +281,40 @@ case "$turn_answer" in
         ;;
 esac
 
+turn_listen_port="3478"
+turn_relay_port_min="49160"
+turn_relay_port_max="49559"
+turn_user_quota="0"
+turn_total_quota=$(( turn_relay_port_max - turn_relay_port_min + 1 ))
+
 if [[ "$enable_turn" == "true" ]]; then
     echo "$msg_turn_enabled"
     turn_username="voxhold"
     turn_password="$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-40)"
-    ice_servers="turn:${webrtc_public_ip}:3478?transport=udp,turn:${webrtc_public_ip}:3478?transport=tcp"
-    ice_username="$turn_username"
-    ice_credential="$turn_password"
-    compose_args+=(--profile turn)
+    # WEBRTC_PUBLIC_IP stays bracket-free; only the URL host of an IPv6 TURN
+    # server is wrapped in square brackets.
+    if is_ipv6_address "$webrtc_public_ip"; then
+        turn_url_host="[$webrtc_public_ip]"
+    else
+        turn_url_host="$webrtc_public_ip"
+    fi
+    client_ice_servers="turn:${turn_url_host}:${turn_listen_port}?transport=udp,turn:${turn_url_host}:${turn_listen_port}?transport=tcp"
+    client_ice_username="$turn_username"
+    client_ice_credential="$turn_password"
+    compose_profiles="${compose_profiles:+$compose_profiles,}turn"
 else
     echo "$msg_turn_disabled"
     turn_username="voxhold"
     turn_password=""
-    ice_servers=""
-    ice_username=""
-    ice_credential=""
+    client_ice_servers=""
+    client_ice_username=""
+    client_ice_credential=""
 fi
+# The standard public deployment uses the backend's own UDP listeners on
+# WEBRTC_PUBLIC_IP; backend Pion sessions must not create TURN allocations.
+server_ice_servers=""
+server_ice_username=""
+server_ice_credential=""
 
 tls_mode="domain"
 caddy_site_address="$public_host"
@@ -312,6 +330,7 @@ if is_ipv4_address "$public_host" || is_ipv6_address "$public_host"; then
 fi
 
 cat > .env <<EOF
+COMPOSE_PROFILES=$(dotenv_quote "$compose_profiles")
 VOXHOLD_BACKEND_IMAGE=$(dotenv_quote "$backend_image")
 VOXHOLD_FRONTEND_IMAGE=$(dotenv_quote "$frontend_image")
 VOXHOLD_FRONTEND_PORT=$(dotenv_quote "$frontend_port")
@@ -341,10 +360,15 @@ TURN_PASSWORD=$(dotenv_quote "$turn_password")
 TURN_REALM=voxhold
 TURN_LISTEN_PORT=3478
 TURN_RELAY_PORT_MIN=49160
-TURN_RELAY_PORT_MAX=49259
-WEBRTC_ICE_SERVERS=$(dotenv_quote "$ice_servers")
-WEBRTC_ICE_USERNAME=$(dotenv_quote "$ice_username")
-WEBRTC_ICE_CREDENTIAL=$(dotenv_quote "$ice_credential")
+TURN_RELAY_PORT_MAX=49559
+TURN_USER_QUOTA=0
+TURN_TOTAL_QUOTA=400
+WEBRTC_CLIENT_ICE_SERVERS=$(dotenv_quote "$client_ice_servers")
+WEBRTC_CLIENT_ICE_USERNAME=$(dotenv_quote "$client_ice_username")
+WEBRTC_CLIENT_ICE_CREDENTIAL=$(dotenv_quote "$client_ice_credential")
+WEBRTC_SERVER_ICE_SERVERS=
+WEBRTC_SERVER_ICE_USERNAME=
+WEBRTC_SERVER_ICE_CREDENTIAL=
 TRUST_PROXY_HEADERS=true
 HTTP_RATE_LIMIT_RPS=25
 HTTP_RATE_LIMIT_BURST=50
@@ -384,15 +408,15 @@ if [[ "$enable_docker_at_boot" == "true" ]]; then
 fi
 
 echo "$msg_pulling"
-docker compose "${compose_args[@]}" pull
+docker compose pull
 echo "$msg_starting"
-docker compose "${compose_args[@]}" up -d
+docker compose up -d
 docker compose ps
 
 echo
 if [[ -z "$bootstrap_password" ]]; then
     bootstrap_logs="$(
-        docker compose "${compose_args[@]}" logs --no-color bootstrap 2>&1 || true
+        docker compose logs --no-color bootstrap 2>&1 || true
     )"
     generated_owner_password=""
     while IFS= read -r bootstrap_log_line; do
@@ -414,7 +438,9 @@ if [[ -z "$bootstrap_password" ]]; then
     echo
 fi
 if [[ "$enable_turn" == "true" ]]; then
-    echo "$msg_turn_firewall"
+    printf "$msg_turn_firewall_fmt\n" \
+        "$turn_listen_port" "$turn_listen_port" \
+        "$turn_relay_port_min" "$turn_relay_port_max"
 fi
 echo "$msg_running https://$caddy_site_address"
 echo "$msg_native_url https://$caddy_site_address"
