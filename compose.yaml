@@ -138,7 +138,6 @@ services:
       - "--no-tls"
       - "--no-dtls"
       - "--no-multicast-peers"
-      - "--no-loopback-peers"
       - "--denied-peer-ip=0.0.0.0-0.255.255.255"
       - "--denied-peer-ip=10.0.0.0-10.255.255.255"
       - "--denied-peer-ip=100.64.0.0-100.127.255.255"
@@ -172,6 +171,9 @@ services:
       - /tmp:rw,noexec,nosuid,nodev
     read_only: true
     cap_drop: ["ALL"]
+    # turnserver binary ships with setcap cap_net_bind_service; exec fails
+    # with EPERM (exit 126) unless this capability stays available.
+    cap_add: ["NET_BIND_SERVICE"]
     security_opt:
       - no-new-privileges:true
     restart: "${VOXHOLD_RESTART_POLICY:-unless-stopped}"
