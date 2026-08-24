@@ -125,6 +125,10 @@ services:
     # UDP paths fail. Enabled via the "turn" profile in COMPOSE_PROFILES.
     image: coturn/coturn:4-alpine
     profiles: ["turn"]
+    # Bypass the image entrypoint: it runs every argument through
+    # "eval echo", which turns "-n" into an empty string (echo's own flag)
+    # and would execute $(...) inside argument values.
+    entrypoint: ["turnserver"]
     command:
       - "-n"
       - "--listening-port=${TURN_LISTEN_PORT:-3478}"
