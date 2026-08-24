@@ -369,6 +369,13 @@ WEBRTC_CLIENT_ICE_CREDENTIAL=$(dotenv_quote "$client_ice_credential")
 WEBRTC_SERVER_ICE_SERVERS=
 WEBRTC_SERVER_ICE_USERNAME=
 WEBRTC_SERVER_ICE_CREDENTIAL=
+# Compatibility aliases: the currently published backend reads only the
+# legacy WEBRTC_ICE_* names (for its own Pion sessions and the runtime
+# browser endpoint). Keep identical to WEBRTC_CLIENT_ICE_* until the backend
+# switches to the split client/server variables.
+WEBRTC_ICE_SERVERS=$(dotenv_quote "$client_ice_servers")
+WEBRTC_ICE_USERNAME=$(dotenv_quote "$client_ice_username")
+WEBRTC_ICE_CREDENTIAL=$(dotenv_quote "$client_ice_credential")
 TRUST_PROXY_HEADERS=true
 HTTP_RATE_LIMIT_RPS=25
 HTTP_RATE_LIMIT_BURST=50

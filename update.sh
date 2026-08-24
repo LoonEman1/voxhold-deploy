@@ -183,7 +183,13 @@ for env_key in \
     TURN_TOTAL_QUOTA; do
     has_env_key "$env_key" || migration_needed=1
 done
-(( legacy_ice_present )) && migration_needed=1
+# The legacy trio doubles as a compatibility alias for the published backend:
+# re-sync it whenever it is missing or diverged from the client values.
+if [[ "$(env_value WEBRTC_ICE_SERVERS)" != "$client_ice_servers" ]] ||
+   [[ "$(env_value WEBRTC_ICE_USERNAME)" != "$client_ice_username" ]] ||
+   [[ "$(env_value WEBRTC_ICE_CREDENTIAL)" != "$client_ice_credential" ]]; then
+    migration_needed=1
+fi
 
 if (( migration_needed )); then
     migration_env="$(mktemp "$DEPLOY_DIR/.env.migration.XXXXXX")"
@@ -197,6 +203,10 @@ if (( migration_needed )); then
         -v server_credential="$server_ice_credential" \
         -v user_quota="$user_quota" \
         -v total_quota="$total_quota" '
+        # Legacy WEBRTC_ICE_* lines are re-appended below, kept in sync with
+        # WEBRTC_CLIENT_ICE_*: the currently published backend still reads
+        # only the legacy names for both its own Pion sessions and the
+        # runtime browser endpoint.
         /^WEBRTC_ICE_SERVERS=/ || /^WEBRTC_ICE_USERNAME=/ || /^WEBRTC_ICE_CREDENTIAL=/ {
             next
         }
@@ -223,17 +233,16 @@ if (( migration_needed )); then
             if (!has_server_credential)  print "WEBRTC_SERVER_ICE_CREDENTIAL=\"" server_credential "\""
             if (!has_user_quota)         print "TURN_USER_QUOTA=\"" user_quota "\""
             if (!has_total_quota)        print "TURN_TOTAL_QUOTA=\"" total_quota "\""
+            print "WEBRTC_ICE_SERVERS=\"" client_servers "\""
+            print "WEBRTC_ICE_USERNAME=\"" client_username "\""
+            print "WEBRTC_ICE_CREDENTIAL=\"" client_credential "\""
         }
     ' .env >"$migration_env"
     chmod 600 "$migration_env"
     mv -- "$migration_env" .env
 
-    echo "WebRTC ICE configuration migrated: browser clients use WEBRTC_CLIENT_ICE_*, backend Pion keeps its own UDP listeners."
-    echo "Конфигурация WebRTC ICE обновлена: браузеры используют WEBRTC_CLIENT_ICE_*, backend Pion — собственные UDP-listeners."
-    if (( legacy_ice_present )); then
-        echo "Legacy WEBRTC_ICE_* variables were removed from .env."
-        echo "Устаревшие переменные WEBRTC_ICE_* удалены из .env."
-    fi
+    echo "WebRTC ICE configuration migrated: browser clients use WEBRTC_CLIENT_ICE_*, legacy WEBRTC_ICE_* kept in sync for the current backend."
+    echo "Конфигурация WebRTC ICE обновлена: браузеры используют WEBRTC_CLIENT_ICE_*, legacy-переменные WEBRTC_ICE_* синхронизированы для текущего backend."
 fi
 
 if [[ -n "$backend_version" ]]; then
