@@ -161,10 +161,10 @@ services:
       - "--total-quota=2048"
       - "--pidfile=/tmp/coturn.pid"
       - "--simple-log"
-    ports:
-      - "${TURN_LISTEN_PORT:-3478}:3478"
-      - "${TURN_LISTEN_PORT:-3478}:3478/udp"
-      - "${TURN_RELAY_PORT_MIN:-49160}-${TURN_RELAY_PORT_MAX:-49259}:${TURN_RELAY_PORT_MIN:-49160}-${TURN_RELAY_PORT_MAX:-49259}/udp"
+    # Host networking: coturn binds 3478 and the relay range directly on the
+    # host. Publishing the 100-port relay range normally spawns one
+    # docker-proxy process per port (~300 MB RAM overhead).
+    network_mode: host
     volumes:
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
