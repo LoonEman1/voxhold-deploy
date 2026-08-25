@@ -2,9 +2,23 @@
 # Bare public IP addresses use Caddyfile.ip and the short-lived ACME profile.
 
 {$PUBLIC_HOST} {
+	# Security headers apply to every response (static assets AND /api/*):
+	# the frontend nginx only covers its own responses, so the edge is the
+	# single place that protects all traffic.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "microphone=(self), camera=(self), display-capture=(self)"
+		-Server
+	}
+
+	encode zstd gzip
+
 	# Keep the public API independent from the selected web client. Caddy also
 	# handles WebSocket upgrades for /api/v1/ws automatically.
-	@backend path /api/* /healthz
+	@backend path /api/* /healthz /readyz
 	handle @backend {
 		reverse_proxy backend:8080
 	}

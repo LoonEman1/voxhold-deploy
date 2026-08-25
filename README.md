@@ -258,6 +258,37 @@ Create a consistent SQLite backup with:
 ./backup.sh
 ```
 
+The backup briefly stops the backend, verifies the archive before publishing
+it, writes a checksum sidecar and a secret-free disaster-recovery manifest,
+keeps the newest `BACKUP_KEEP_COUNT` archives (default 7) and mirrors them
+offsite when `BACKUP_OFFSITE_DIR` or `BACKUP_OFFSITE_CMD` is set in `.env`.
+Schedule it with the provided units:
+
+```bash
+sudo cp systemd/voxhold-backup.{service,timer} /etc/systemd/system/
+sudo sed -i "s|@DEPLOY_DIR@|$PWD|" /etc/systemd/system/voxhold-backup.*
+sudo systemctl daemon-reload && sudo systemctl enable --now voxhold-backup.timer
+```
+
+Restore into a scratch volume first (production untouched), or overwrite the
+live volume explicitly:
+
+```bash
+./restore.sh backups/voxhold-<timestamp>.tar.gz                 # safe mode
+./restore.sh backups/voxhold-<timestamp>.tar.gz --into-existing # replaces data
+```
+
+`./watchdog.sh` checks the public endpoint, free disk space and backup age;
+alerts go to `WATCHDOG_NOTIFY_URL` when configured. Schedule it every 15
+minutes with the `systemd/voxhold-watchdog.*` units the same way.
+
+Updates are transactional by default: `./update.sh` creates a safety backup
+(opt out with `VOXHOLD_UPDATE_SKIP_BACKUP=1`), waits for the backend health
+check and saves the previously working image digests to `.last-good.env`.
+If an update misbehaves, roll images back with `./update.sh --rollback`;
+when the newer release migrated the database schema, restore the matching
+backup instead (migrations are forward-only).
+
 The backup briefly stops the backend and keeps the Docker volumes intact.
 
 If an existing SQLite volume was created by an older root container, repair its

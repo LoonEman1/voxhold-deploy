@@ -1,0 +1,14 @@
+# Voxhold daily backup service (template).
+# Install:
+#   sudo cp systemd/voxhold-backup.{service,timer} /etc/systemd/system/
+#   sudo sed -i "s|@DEPLOY_DIR@|$HOME/voxhold-deploy|" /etc/systemd/system/voxhold-backup.*
+#   sudo systemctl daemon-reload && sudo systemctl enable --now voxhold-backup.timer
+[Unit]
+Description=Voxhold SQLite backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=@DEPLOY_DIR@
+ExecStart=@DEPLOY_DIR@/backup.sh
+# Notify an external dead-man endpoint about failures if configured:
+# OnFailure=voxhold-notify@%n.service

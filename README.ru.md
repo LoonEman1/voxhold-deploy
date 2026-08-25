@@ -258,6 +258,37 @@ registry или неизменяемого digest отредактируйте `
 ./backup.sh
 ```
 
+Бэкап ненадолго останавливает backend, проверяет архив до публикации, пишет
+checksum-файл и manifest для disaster-recovery без секретов, хранит
+`BACKUP_KEEP_COUNT` свежих архивов (по умолчанию 7) и при настроенном
+`BACKUP_OFFSITE_DIR` или `BACKUP_OFFSITE_CMD` копирует их offsite.
+Расписание задаётся готовыми юнитами:
+
+```bash
+sudo cp systemd/voxhold-backup.{service,timer} /etc/systemd/system/
+sudo sed -i "s|@DEPLOY_DIR@|$PWD|" /etc/systemd/system/voxhold-backup.*
+sudo systemctl daemon-reload && sudo systemctl enable --now voxhold-backup.timer
+```
+
+Восстановление сначала в отдельный volume (боевые данные не трогаются), либо
+с явной перезаписью живого volume:
+
+```bash
+./restore.sh backups/voxhold-<метка>.tar.gz                 # безопасный режим
+./restore.sh backups/voxhold-<метка>.tar.gz --into-existing # заменить данные
+```
+
+`./watchdog.sh` проверяет публичный endpoint, свободное место и свежесть
+бэкапа; уведомления уходят на `WATCHDOG_NOTIFY_URL`, если он задан. Запуск
+каждые 15 минут — юниты `systemd/voxhold-watchdog.*` аналогично.
+
+Обновление транзакционно по умолчанию: `./update.sh` делает страховочный
+бэкап (отключается через `VOXHOLD_UPDATE_SKIP_BACKUP=1`), ждёт healthcheck
+backend и сохраняет ранее работавшие digest образов в `.last-good.env`.
+Если обновление ведёт себя плохо — откатите образы `./update.sh --rollback`;
+если новый релиз мигрировал схему БД, вместо отката восстановите
+соответствующий бэкап (миграции только вперёд).
+
 На время копирования backend ненадолго останавливается, Docker volumes
 сохраняются.
 

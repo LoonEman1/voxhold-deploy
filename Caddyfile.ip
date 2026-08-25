@@ -8,6 +8,18 @@
 # after server outages or temporary network and validation failures.
 
 {$CADDY_SITE_ADDRESS} {
+	# Security headers for every response (static assets AND /api/*).
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "microphone=(self), camera=(self), display-capture=(self)"
+		-Server
+	}
+
+	encode zstd gzip
+
 	tls {
 		issuer acme https://acme-v02.api.letsencrypt.org/directory {
 			profile shortlived
@@ -16,7 +28,7 @@
 		renewal_window_ratio 0.5
 	}
 
-	@backend path /api/* /healthz
+	@backend path /api/* /healthz /readyz
 	handle @backend {
 		reverse_proxy backend:8080
 	}

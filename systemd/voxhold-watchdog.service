@@ -1,0 +1,13 @@
+# Voxhold operator watchdog (template): public endpoint, disk space, backup
+# freshness. Configure WATCHDOG_NOTIFY_URL in .env to receive alerts.
+# Install:
+#   sudo cp systemd/voxhold-watchdog.{service,timer} /etc/systemd/system/
+#   sudo sed -i "s|@DEPLOY_DIR@|$HOME/voxhold-deploy|" /etc/systemd/system/voxhold-watchdog.*
+#   sudo systemctl daemon-reload && sudo systemctl enable --now voxhold-watchdog.timer
+[Unit]
+Description=Voxhold watchdog checks
+
+[Service]
+Type=oneshot
+WorkingDirectory=@DEPLOY_DIR@
+ExecStart=@DEPLOY_DIR@/watchdog.sh

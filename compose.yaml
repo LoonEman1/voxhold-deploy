@@ -1,6 +1,15 @@
+# Bounded json-file logs everywhere: unbounded default logs eventually fill
+# small VPS disks.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   migrate:
     image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    logging: *default-logging
     env_file:
       - .env
     entrypoint: ["/bin/sh", "-c"]
@@ -30,6 +39,7 @@ services:
 
   bootstrap:
     image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    logging: *default-logging
     env_file:
       - .env
     entrypoint: ["voxhold-bootstrap"]
@@ -50,8 +60,12 @@ services:
 
   backend:
     image: ${VOXHOLD_BACKEND_IMAGE:-ghcr.io/looneman1/voxhold-backend:latest}
+    logging: *default-logging
     env_file:
       - .env
+    # Memory guardrail only; no CPU hard limit so media throughput is never
+    # throttled. Tune after observing real usage (docker stats).
+    mem_limit: 768m
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -80,6 +94,7 @@ services:
 
   frontend:
     image: ${VOXHOLD_FRONTEND_IMAGE:-ghcr.io/looneman1/voxhold-frontend:latest}
+    logging: *default-logging
     profiles: ["web"]
     environment:
       BACKEND_UPSTREAM: backend:8080
@@ -91,11 +106,21 @@ services:
     networks:
       - app
     restart: "${VOXHOLD_RESTART_POLICY:-unless-stopped}"
+    # Same hardening the official frontend compose uses and verifies.
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+      - /tmp:uid=101,gid=101
+    mem_limit: 192m
     security_opt:
       - no-new-privileges:true
+    cap_drop: ["ALL"]
 
   caddy:
     image: caddy:2.11.4-alpine
+    logging: *default-logging
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-localhost}
@@ -124,6 +149,7 @@ services:
     # sessions use it as fallback, and P2P connections rely on it when direct
     # UDP paths fail. Enabled via the "turn" profile in COMPOSE_PROFILES.
     image: coturn/coturn:4-alpine
+    logging: *default-logging
     profiles: ["turn"]
     # Bypass the image entrypoint: it runs every argument through
     # "eval echo", which turns "-n" into an empty string (echo's own flag)
@@ -173,6 +199,14 @@ services:
     # host. Publishing the 100-port relay range normally spawns one
     # docker-proxy process per port (~300 MB RAM overhead).
     network_mode: host
+    # TURN keeps one socket pair per relay allocation; the host default
+    # (observed: 524288) is fine, this guardrail only prevents a lower
+    # inherited limit from breaking allocations.
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    mem_limit: 384m
     volumes:
       - /etc/localtime:/etc/localtime:ro
     tmpfs:

@@ -7,34 +7,52 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: ./update.sh [--backend-version <version>]
-Использование: ./update.sh [--backend-version <версия>]
+Usage: ./update.sh [--backend-version <version>] [--rollback]
 
-Without arguments, the script pulls the image references currently stored in
-.env. Use --backend-version 0.2.0 (or v0.2.0) to switch the official backend
-image to an exact published release before updating the stack.
+Without arguments, the script backs up the database, pulls the image
+references currently stored in .env, updates the stack and waits for the
+backend to become healthy. The previously working image references are saved
+to .last-good.env for ./update.sh --rollback.
+Use --backend-version 0.2.0 (or v0.2.0) to switch the official backend image
+to an exact published release before updating.
 
-Без аргументов скрипт загружает образы, уже указанные в .env. Используйте
---backend-version 0.2.0 (или v0.2.0), чтобы перед обновлением переключить
-официальный образ backend на точный опубликованный релиз.
+Использование: ./update.sh [--backend-version <версия>] [--rollback]
+
+Без аргументов скрипт делает бэкап БД, загружает образы из .env, обновляет
+стек и ждёт перехода backend в healthy. Ранее работавшие ссылки на образы
+сохраняются в .last-good.env для ./update.sh --rollback.
+--backend-version 0.2.0 переключает официальный образ backend на точный
+релиз перед обновлением.
 EOF
 }
 
+die() {
+    echo "Update aborted: $*" >&2
+    exit 1
+}
+
 backend_version=""
-case "$#" in
-    0) ;;
-    2)
-        if [[ "$1" != "--backend-version" ]]; then
-            usage >&2
-            exit 2
-        fi
-        backend_version="${2#v}"
-        ;;
-    *)
-        usage >&2
-        exit 2
-        ;;
-esac
+do_rollback=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --backend-version)
+            [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+            backend_version="$2"
+            shift 2
+            ;;
+        --rollback)
+            do_rollback=1
+            shift
+            ;;
+        *) usage >&2; exit 2 ;;
+    esac
+done
+
+if [[ -n "$backend_version" && "$do_rollback" == 1 ]]; then
+    die "--backend-version and --rollback are mutually exclusive."
+fi
+
+backend_version="${backend_version#v}"
 
 if [[ -n "$backend_version" ]] &&
    [[ ! "$backend_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
@@ -183,15 +201,24 @@ for env_key in \
     TURN_TOTAL_QUOTA; do
     has_env_key "$env_key" || migration_needed=1
 done
-# The legacy trio doubles as a compatibility alias for the published backend:
-# re-sync it whenever it is missing or diverged from the client values.
-if [[ "$(env_value WEBRTC_ICE_SERVERS)" != "$client_ice_servers" ]] ||
-   [[ "$(env_value WEBRTC_ICE_USERNAME)" != "$client_ice_username" ]] ||
-   [[ "$(env_value WEBRTC_ICE_CREDENTIAL)" != "$client_ice_credential" ]]; then
-    migration_needed=1
+# The legacy trio doubles as a compatibility alias. Two deployment eras:
+#  - pre-split files (no WEBRTC_SERVER_ICE_* keys yet): legacy values are the
+#    only source, keep them synced from CLIENT;
+#  - split-aware files (SERVER keys present): new backends ignore legacy for
+#    routing, so preserve whatever the operator keeps there — including a
+#    deliberate removal after upgrading to an ICE-split backend release.
+legacy_sync_needed=0
+if ! has_env_key WEBRTC_SERVER_ICE_SERVERS; then
+    if [[ "$(env_value WEBRTC_ICE_SERVERS)" != "$client_ice_servers" ]] ||
+       [[ "$(env_value WEBRTC_ICE_USERNAME)" != "$client_ice_username" ]] ||
+       [[ "$(env_value WEBRTC_ICE_CREDENTIAL)" != "$client_ice_credential" ]]; then
+        legacy_sync_needed=1
+        migration_needed=1
+    fi
 fi
 
 if (( migration_needed )); then
+    if [[ "$legacy_sync_needed" == "1" ]]; then emit_legacy=1; else emit_legacy=0; fi
     migration_env="$(mktemp "$DEPLOY_DIR/.env.migration.XXXXXX")"
     awk \
         -v profiles="$compose_profiles" \
@@ -202,12 +229,13 @@ if (( migration_needed )); then
         -v server_username="$server_ice_username" \
         -v server_credential="$server_ice_credential" \
         -v user_quota="$user_quota" \
-        -v total_quota="$total_quota" '
-        # Legacy WEBRTC_ICE_* lines are re-appended below, kept in sync with
-        # WEBRTC_CLIENT_ICE_*: the currently published backend still reads
-        # only the legacy names for both its own Pion sessions and the
-        # runtime browser endpoint.
+        -v total_quota="$total_quota" \
+        -v emit_legacy="$emit_legacy" '
+        # Legacy WEBRTC_ICE_* handling depends on the deployment era: pre-split
+        # files get them re-emitted in sync with WEBRTC_CLIENT_ICE_*; split-aware
+        # files keep operator-managed values untouched.
         /^WEBRTC_ICE_SERVERS=/ || /^WEBRTC_ICE_USERNAME=/ || /^WEBRTC_ICE_CREDENTIAL=/ {
+            if (emit_legacy == 0) { print; next }
             next
         }
         {
@@ -233,9 +261,11 @@ if (( migration_needed )); then
             if (!has_server_credential)  print "WEBRTC_SERVER_ICE_CREDENTIAL=\"" server_credential "\""
             if (!has_user_quota)         print "TURN_USER_QUOTA=\"" user_quota "\""
             if (!has_total_quota)        print "TURN_TOTAL_QUOTA=\"" total_quota "\""
-            print "WEBRTC_ICE_SERVERS=\"" client_servers "\""
-            print "WEBRTC_ICE_USERNAME=\"" client_username "\""
-            print "WEBRTC_ICE_CREDENTIAL=\"" client_credential "\""
+            if (emit_legacy == 1) {
+                print "WEBRTC_ICE_SERVERS=\"" client_servers "\""
+                print "WEBRTC_ICE_USERNAME=\"" client_username "\""
+                print "WEBRTC_ICE_CREDENTIAL=\"" client_credential "\""
+            }
         }
     ' .env >"$migration_env"
     chmod 600 "$migration_env"
@@ -245,35 +275,88 @@ if (( migration_needed )); then
     echo "Конфигурация WebRTC ICE обновлена: браузеры используют WEBRTC_CLIENT_ICE_*, legacy-переменные WEBRTC_ICE_* синхронизированы для текущего backend."
 fi
 
-if [[ -n "$backend_version" ]]; then
-    backend_image="ghcr.io/looneman1/voxhold-backend:$backend_version"
+# Replace one KEY="value" line atomically, preserving everything else.
+replace_env_key() {
+    local key="$1" value="$2"
+    local temporary_env
     temporary_env="$(mktemp "$DEPLOY_DIR/.env.tmp.XXXXXX")"
-    cleanup() {
-        if [[ -n "${temporary_env:-}" && -f "$temporary_env" ]]; then
-            rm -f -- "$temporary_env"
-        fi
-    }
-    trap cleanup EXIT
-
-    awk -v replacement="VOXHOLD_BACKEND_IMAGE=\"$backend_image\"" '
-        /^VOXHOLD_BACKEND_IMAGE=/ {
-            print replacement
+    awk -v key="$key" -v value="$value" '
+        $0 ~ "^" key "=" {
+            print key "=\"" value "\""
             found = 1
             next
         }
         { print }
         END {
             if (!found) {
-                print replacement
+                print key "=\"" value "\""
             }
         }
-    ' .env > "$temporary_env"
+    ' .env >"$temporary_env"
     chmod 600 "$temporary_env"
     mv -- "$temporary_env" .env
-    temporary_env=""
+}
+
+if [[ "$do_rollback" == 1 ]]; then
+    [[ -f .last-good.env ]] || die "no rollback manifest found (.last-good.env); nothing to roll back to."
+    # shellcheck disable=SC1090
+    . ./.last-good.env
+    echo "WARNING: rolling back images. Database migrations are forward-only:"
+    echo "if the newer release migrated the schema, restore the matching backup instead:"
+    echo "  ./restore.sh backups/<archive-matching-the-old-release>.tar.gz --into-existing"
+    if [[ -n "${VOXHOLD_BACKEND_IMAGE_DIGEST:-}" ]]; then
+        replace_env_key VOXHOLD_BACKEND_IMAGE "$VOXHOLD_BACKEND_IMAGE_DIGEST"
+    elif [[ -n "${VOXHOLD_BACKEND_IMAGE:-}" ]]; then
+        replace_env_key VOXHOLD_BACKEND_IMAGE "$VOXHOLD_BACKEND_IMAGE"
+    fi
+    if [[ -n "${VOXHOLD_FRONTEND_IMAGE_DIGEST:-}" ]]; then
+        replace_env_key VOXHOLD_FRONTEND_IMAGE "$VOXHOLD_FRONTEND_IMAGE_DIGEST"
+    elif [[ -n "${VOXHOLD_FRONTEND_IMAGE:-}" ]]; then
+        replace_env_key VOXHOLD_FRONTEND_IMAGE "$VOXHOLD_FRONTEND_IMAGE"
+    fi
+    echo "Rolled back image references from .last-good.env."
+elif [[ -n "$backend_version" ]]; then
+    backend_image="ghcr.io/looneman1/voxhold-backend:$backend_version"
+    replace_env_key VOXHOLD_BACKEND_IMAGE "$backend_image"
 
     echo "Backend release selected: $backend_version"
     echo "Выбран релиз backend: $backend_version"
+fi
+
+# Snapshot the currently deployed (pre-update) image digests so a failed or
+# regretted update can be rolled back with ./update.sh --rollback.
+last_good_backend_ref="$(env_value VOXHOLD_BACKEND_IMAGE)"
+last_good_frontend_ref="$(env_value VOXHOLD_FRONTEND_IMAGE)"
+last_good_backend_digest=""
+last_good_frontend_digest=""
+backend_container_id="$(docker compose ps -q backend 2>/dev/null || true)"
+frontend_container_id="$(docker compose ps -q frontend 2>/dev/null || true)"
+if [[ -n "$backend_container_id" ]]; then
+    last_good_backend_digest="$(docker inspect -f '{{index .RepoDigests 0}}' "$backend_container_id" 2>/dev/null || true)"
+fi
+if [[ -n "$frontend_container_id" ]]; then
+    last_good_frontend_digest="$(docker inspect -f '{{index .RepoDigests 0}}' "$frontend_container_id" 2>/dev/null || true)"
+fi
+
+write_last_good_manifest() {
+    local manifest_tmp
+    manifest_tmp="$(mktemp "$DEPLOY_DIR/.last-good.env.XXXXXX")"
+    {
+        printf 'VOXHOLD_BACKEND_IMAGE="%s"\n' "$last_good_backend_ref"
+        printf 'VOXHOLD_BACKEND_IMAGE_DIGEST="%s"\n' "$last_good_backend_digest"
+        printf 'VOXHOLD_FRONTEND_IMAGE="%s"\n' "$last_good_frontend_ref"
+        printf 'VOXHOLD_FRONTEND_IMAGE_DIGEST="%s"\n' "$last_good_frontend_digest"
+        printf 'SAVED_AT_UTC="%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } >"$manifest_tmp"
+    chmod 600 "$manifest_tmp"
+    mv -- "$manifest_tmp" .last-good.env
+}
+
+# Safety backup before touching the running stack. The backup briefly stops
+# the backend; opt out explicitly with VOXHOLD_UPDATE_SKIP_BACKUP=1.
+if [[ "${VOXHOLD_UPDATE_SKIP_BACKUP:-0}" != "1" ]] && [[ "$do_rollback" != 1 ]]; then
+    echo "Creating a safety backup before updating..."
+    ./backup.sh
 fi
 
 # COMPOSE_PROFILES is persisted in .env by the migration above (and by the
@@ -281,4 +364,26 @@ fi
 # set selected during installation — no CLI --profile flags required.
 docker compose pull
 docker compose up -d --remove-orphans
+
+# Wait until the backend reports healthy before declaring success.
+backend_container_id="$(docker compose ps -q backend)"
+if [[ -n "$backend_container_id" ]]; then
+    health_status="starting"
+    for _ in $(seq 1 40); do
+        health_status="$(docker inspect -f \
+            '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' \
+            "$backend_container_id" 2>/dev/null || echo unknown)"
+        [[ "$health_status" == "healthy" ]] && break
+        sleep 3
+    done
+    if [[ "$health_status" != "healthy" ]]; then
+        echo "WARNING: backend did not report healthy within 120s (status: $health_status)." >&2
+        echo "Inspect with: docker compose logs --tail=100 backend" >&2
+        echo "Roll back with: ./update.sh --rollback" >&2
+    else
+        write_last_good_manifest
+        echo "Update finished; rollback point saved to .last-good.env."
+    fi
+fi
+
 docker compose ps
