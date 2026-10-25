@@ -352,18 +352,34 @@ write_last_good_manifest() {
     mv -- "$manifest_tmp" .last-good.env
 }
 
-# Safety backup before touching the running stack. The backup briefly stops
-# the backend; opt out explicitly with VOXHOLD_UPDATE_SKIP_BACKUP=1.
-if [[ "${VOXHOLD_UPDATE_SKIP_BACKUP:-0}" != "1" ]] && [[ "$do_rollback" != 1 ]]; then
-    echo "Creating a safety backup before updating..."
-    ./backup.sh
-fi
-
 # COMPOSE_PROFILES is persisted in .env by the migration above (and by the
 # current installer), so plain compose commands operate on exactly the service
 # set selected during installation — no CLI --profile flags required.
+# Pull first: downloading must not extend the downtime, and a failed pull
+# aborts before the running stack is touched.
 docker compose pull
+
+# Safety backup before touching the running stack. The backup stops the
+# backend and leaves it stopped so that `up -d` starts the new image in the
+# same window: active calls reconnect once instead of twice. Opt out
+# explicitly with VOXHOLD_UPDATE_SKIP_BACKUP=1.
+backend_left_stopped=0
+restart_backend_on_failure() {
+    if (( backend_left_stopped )); then
+        echo "Update failed after the backup; starting the previous backend again." >&2
+        docker compose start backend >/dev/null 2>&1 || true
+    fi
+}
+trap restart_backend_on_failure EXIT
+if [[ "${VOXHOLD_UPDATE_SKIP_BACKUP:-0}" != "1" ]] && [[ "$do_rollback" != 1 ]]; then
+    echo "Creating a safety backup before updating..."
+    VOXHOLD_BACKUP_LEAVE_STOPPED=1 ./backup.sh
+    backend_left_stopped=1
+fi
+
 docker compose up -d --remove-orphans
+backend_left_stopped=0
+trap - EXIT
 
 # Wait until the backend reports healthy before declaring success.
 backend_container_id="$(docker compose ps -q backend)"
