@@ -73,7 +73,10 @@ cleanup() {
         echo "Backend state restored; nothing was published." >&2
     fi
     # Bring the backend back exactly when it was serving before the backup.
-    if (( backend_was_running )); then
+    # update.sh sets VOXHOLD_BACKUP_LEAVE_STOPPED=1 after a successful backup
+    # so the new image starts right away: one restart instead of two.
+    if (( backend_was_running )) &&
+       { (( status != 0 )) || [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" != "1" ]]; }; then
         docker compose start backend >/dev/null 2>&1 \
             || echo "WARNING: could not restart backend automatically; run: docker compose start backend" >&2
     fi
