@@ -148,7 +148,9 @@ services:
     # Optional TURN relay for WebRTC clients: browser voice and server-stream
     # sessions use it as fallback, and P2P connections rely on it when direct
     # UDP paths fail. Enabled via the "turn" profile in COMPOSE_PROFILES.
-    image: coturn/coturn:4-alpine
+    # Pinned: the floating 4-alpine tag moved to 4.18, which rejects the
+    # removed --no-dtls flag and crash-looped every installation on update.
+    image: coturn/coturn:4.18.0-alpine
     logging: *default-logging
     profiles: ["turn"]
     # Bypass the image entrypoint: it runs every argument through
@@ -165,9 +167,9 @@ services:
       - "--external-ip=${WEBRTC_PUBLIC_IP:-}"
       - "--min-port=${TURN_RELAY_PORT_MIN:-49160}"
       - "--max-port=${TURN_RELAY_PORT_MAX:-49559}"
-      - "--no-cli"
+      # coturn 4.18 keeps the CLI and DTLS listeners off by default; the old
+      # --no-cli/--no-dtls flags are deprecated or rejected there.
       - "--no-tls"
-      - "--no-dtls"
       - "--no-multicast-peers"
       - "--denied-peer-ip=0.0.0.0-0.255.255.255"
       - "--denied-peer-ip=10.0.0.0-10.255.255.255"
