@@ -314,3 +314,17 @@ Run `CADDY_BIN=/path/to/caddy python3 -m unittest discover -s tests -v` to check
 both adapted configs and compose isolation. The backend repository additionally
 contains a real Caddy + Guard HTTP/WS rate-limit integration test; see its
 `docs/audit-2.1.ru.md`. No production traffic is used by these checks.
+
+
+For paired releases, select both versions in one update:
+
+```sh
+./update.sh --backend-version 2.1.0 --frontend-version 2.1.0
+```
+
+The updater captures the actually running image references and image digests
+before editing desired versions. It saves the rollback point before the stack
+changes, preserves it during rollback, and exits with failure if either official
+application component stays unhealthy. Test with
+`python3 -m unittest discover -s tests -p test_updater.py -v` on Linux; Docker is
+mocked and no service is modified by those regression tests.
