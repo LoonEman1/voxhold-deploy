@@ -1,3 +1,6 @@
 .env
 backups/
 .DS_Store
+
+# Python regression-test bytecode.
+__pycache__/

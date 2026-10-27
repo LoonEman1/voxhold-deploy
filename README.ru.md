@@ -302,3 +302,15 @@ docker run --rm --user 0 \
   alpine:3.22 \
   sh -c 'chown -R 10001:10001 /app/data && chmod 770 /app/data'
 ```
+
+
+## Проверенный адрес клиента (аудит 2.1)
+
+Оба Caddyfile перезаписывают `X-Real-IP` адресом TCP-клиента. Backend с
+`TRUST_PROXY_HEADERS=true` получает проверенное на публичной границе значение;
+HTTP-порт backend не публикуется за пределы compose-сети. Обновите Caddyfile вместе
+с backend 2.1; применение к production остаётся отдельной операцией владельца.
+
+Проверки: `CADDY_BIN=/path/to/caddy python3 -m unittest discover -s tests -v`.
+В backend добавлен интеграционный тест настоящего Caddy + Guard для HTTP/WS
+лимитов, разных клиентов и подставных заголовков; команды в `docs/audit-2.1.ru.md`.

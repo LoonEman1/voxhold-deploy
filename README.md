@@ -301,3 +301,16 @@ docker run --rm --user 0 \
   alpine:3.22 \
   sh -c 'chown -R 10001:10001 /app/data && chmod 770 /app/data'
 ```
+
+
+## Trusted client IP (2.1 audit)
+
+Both public Caddy configurations overwrite `X-Real-IP` with the TCP peer address;
+`TRUST_PROXY_HEADERS=true` therefore uses an edge-verified value. The backend HTTP
+port remains internal to the compose network. Apply the updated Caddyfile with the
+matching backend 2.1 release; production reload/deployment is an operator action.
+
+Run `CADDY_BIN=/path/to/caddy python3 -m unittest discover -s tests -v` to check
+both adapted configs and compose isolation. The backend repository additionally
+contains a real Caddy + Guard HTTP/WS rate-limit integration test; see its
+`docs/audit-2.1.ru.md`. No production traffic is used by these checks.

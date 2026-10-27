@@ -20,12 +20,17 @@
 	# handles WebSocket upgrades for /api/v1/ws automatically.
 	@backend path /api/* /healthz /readyz
 	handle @backend {
-		reverse_proxy backend:8080
+		reverse_proxy backend:8080 {
+			# Trust only the address of the TCP peer at this public edge.
+			header_up X-Real-IP {remote_host}
+		}
 	}
 
 	# In server-only mode this is the backend. In web mode it is the selected
 	# official or third-party frontend container.
 	handle {
-		reverse_proxy {$EDGE_UPSTREAM}
+		reverse_proxy {$EDGE_UPSTREAM} {
+			header_up X-Real-IP {remote_host}
+		}
 	}
 }

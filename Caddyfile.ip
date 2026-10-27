@@ -30,10 +30,15 @@
 
 	@backend path /api/* /healthz /readyz
 	handle @backend {
-		reverse_proxy backend:8080
+		reverse_proxy backend:8080 {
+			# Trust only the address of the TCP peer at this public edge.
+			header_up X-Real-IP {remote_host}
+		}
 	}
 
 	handle {
-		reverse_proxy {$EDGE_UPSTREAM}
+		reverse_proxy {$EDGE_UPSTREAM} {
+			header_up X-Real-IP {remote_host}
+		}
 	}
 }
