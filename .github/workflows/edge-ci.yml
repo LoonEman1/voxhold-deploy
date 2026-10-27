@@ -16,6 +16,8 @@ jobs:
           docker cp "$container:/usr/bin/caddy" /tmp/caddy
           docker rm "$container"
           chmod +x /tmp/caddy
+      - name: Report Compose version
+        run: docker compose version
       - name: Validate proxy identity and compose isolation
         env:
           CADDY_BIN: /tmp/caddy

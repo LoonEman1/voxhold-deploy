@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import unittest
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,7 +35,12 @@ class EdgeConfigurationTests(unittest.TestCase):
                     self.assertEqual(real_ip, ["{http.request.remote.host}"])
 
     def test_backend_http_cannot_bypass_the_public_edge(self):
-        result = subprocess.run(["docker", "compose", "--env-file", str(ROOT / ".env.example"), "-f", str(ROOT / "compose.yaml"), "config", "--no-env-resolution", "--format", "json"], capture_output=True, check=True, text=True)
+        # Resolve env_file against an isolated project directory containing only
+        # a dummy .env. This works across Compose versions and never reads an
+        # operator's actual deployment credentials.
+        with tempfile.TemporaryDirectory() as project:
+            (Path(project) / ".env").write_text("", encoding="utf-8")
+            result = subprocess.run(["docker", "compose", "--project-directory", project, "--project-name", "voxhold-edge-test", "--env-file", str(ROOT / ".env.example"), "-f", str(ROOT / "compose.yaml"), "config", "--format", "json"], capture_output=True, check=True, text=True)
         config = json.loads(result.stdout)
         backend = config["services"]["backend"]
         self.assertIn("8080", [str(port) for port in backend.get("expose", [])])
