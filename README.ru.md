@@ -314,3 +314,16 @@ HTTP-порт backend не публикуется за пределы compose-с
 Проверки: `CADDY_BIN=/path/to/caddy python3 -m unittest discover -s tests -v`.
 В backend добавлен интеграционный тест настоящего Caddy + Guard для HTTP/WS
 лимитов, разных клиентов и подставных заголовков; команды в `docs/audit-2.1.ru.md`.
+
+
+Для общего релиза выбирайте обе версии одним запуском:
+
+```sh
+./update.sh --backend-version 2.1.0 --frontend-version 2.1.0
+```
+
+Updater сохраняет ссылки и digest фактически запущенных образов **до** изменения
+желаемых версий. Точка отката появляется до изменения стека и не перезаписывается
+при rollback. Если официальный backend или frontend остаётся unhealthy, команда
+завершается с ошибкой. Регрессии проверяются на Linux с mock Docker:
+`python3 -m unittest discover -s tests -p test_updater.py -v`.
