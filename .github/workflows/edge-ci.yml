@@ -1,0 +1,22 @@
+name: Edge configuration
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Extract pinned Caddy binary
+        run: |
+          container=$(docker create caddy:2.11.4)
+          docker cp "$container:/usr/bin/caddy" /tmp/caddy
+          docker rm "$container"
+          chmod +x /tmp/caddy
+      - name: Validate proxy identity and compose isolation
+        env:
+          CADDY_BIN: /tmp/caddy
+        run: python3 -m unittest discover -s tests -v
