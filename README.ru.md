@@ -5,6 +5,9 @@
 Файлы для production-развёртывания Voxhold из опубликованных контейнерных
 образов. Исходный код backend и frontend на сервере не требуется.
 
+**Связанные репозитории:** [Backend](https://github.com/LoonEman1/voxhold-backend)
+· [Frontend](https://github.com/LoonEman1/voxhold-frontend).
+
 ## Поддерживаемая платформа
 
 Скрипты развёртывания поддерживают **только Linux-серверы** (`linux/amd64` и
@@ -42,11 +45,11 @@ curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/boots
 ```
 
 После публикации тега релиза для воспроизводимой production-установки укажите
-его вместо `main` в обоих местах. Например, для `v1.0.0`:
+его вместо `main` в обоих местах. Например, для `v2.2.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v1.0.0/bootstrap.sh \
-  | VOXHOLD_DEPLOY_REF=v1.0.0 bash
+curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.2.0/bootstrap.sh \
+  | VOXHOLD_DEPLOY_REF=v2.2.0 bash
 ```
 
 Передавать удалённый скрипт напрямую в Bash следует только из доверенного
@@ -187,10 +190,12 @@ VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:latest
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
-Образы backend публикуются только из Git-тегов наподобие `v0.1.0`. После этого
-теги образа `0.1.0`, `0.1` и `latest` указывают на данный релиз. Deploy по
-умолчанию использует `latest`, поэтому `./update.sh` загружает последний
-стабильный backend. Для предсказуемого production-развёртывания можно указать
+Backend и frontend используют общий номер релиза, сейчас **2.2.0**.
+После проверенного слияния релизного PR `dev` → `main` CI соответствующего
+репозитория публикует образы, аннотированный тег и GitHub Release. Для backend
+и frontend доступны точные теги `2.2.0` и перемещаемые `2.2`/`latest`.
+Deploy по умолчанию использует `latest`; для согласованного обновления выбирайте
+обе точные версии одной командой ниже. Для предсказуемого production-развёртывания можно указать
 точный тег или OCI digest. Для приватных образов
 перед установкой или обновлением выполните `docker login`. Задачи миграции и
 первоначальной настройки всегда используют точно тот же образ, что и сервис
@@ -244,10 +249,10 @@ docker compose logs --tail=100 caddy
 
 ```bash
 ./backup.sh
-./update.sh --backend-version 0.2.0
+./update.sh --backend-version 2.2.0
 ```
 
-Команда также принимает Git-форму `v0.2.0`. Она намеренно заменяет
+Команда также принимает Git-форму `v2.2.0`. Она намеренно заменяет
 `VOXHOLD_BACKEND_IMAGE` на официальный GHCR-образ; для fork, собственного
 registry или неизменяемого digest отредактируйте `.env` вручную. Перед сменой
 версии прочитайте описание релиза и создайте резервную копию.
@@ -316,10 +321,22 @@ HTTP-порт backend не публикуется за пределы compose-с
 лимитов, разных клиентов и подставных заголовков; команды в `docs/audit-2.1.ru.md`.
 
 
+## Обновление до Voxhold 2.2.0
+
+Релиз добавляет новостные каналы, комментарии и счётчики уведомлений.
+Сначала должен обновиться backend с миграциями **000025–000026**, затем frontend.
+Compose запускает задачу миграций перед новым backend. Updater создаёт
+страховочный бэкап; сохраните его до проверки новой версии.
+
+- [Релизы backend](https://github.com/LoonEman1/voxhold-backend/releases)
+- [Релизы frontend](https://github.com/LoonEman1/voxhold-frontend/releases)
+- [Описание миграций и поведения новостных каналов](https://github.com/LoonEman1/voxhold-backend/blob/main/docs/news-channels.md)
+- [Скриншоты интерфейса](https://github.com/LoonEman1/voxhold-frontend/blob/main/README.ru.md#примеры-интерфейса)
+
 Для общего релиза выбирайте обе версии одним запуском:
 
 ```sh
-./update.sh --backend-version 2.1.0 --frontend-version 2.1.0
+./update.sh --backend-version 2.2.0 --frontend-version 2.2.0
 ```
 
 Updater сохраняет ссылки и digest фактически запущенных образов **до** изменения
