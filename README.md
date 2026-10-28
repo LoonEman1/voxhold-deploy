@@ -6,6 +6,9 @@ Production deployment files for Voxhold. This repository runs published
 container images; backend and frontend source code are not required on the
 server.
 
+**Related repositories:** [Backend](https://github.com/LoonEman1/voxhold-backend)
+· [Frontend](https://github.com/LoonEman1/voxhold-frontend).
+
 ## Supported platform
 
 The deployment scripts support **Linux servers only** (`linux/amd64` and
@@ -43,11 +46,11 @@ curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/boots
 ```
 
 After publishing a release tag, use it instead of `main` in both locations for
-reproducible production installations. For example, for `v1.0.0`:
+reproducible production installations. For example, for `v2.2.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v1.0.0/bootstrap.sh \
-  | VOXHOLD_DEPLOY_REF=v1.0.0 bash
+curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.2.0/bootstrap.sh \
+  | VOXHOLD_DEPLOY_REF=v2.2.0 bash
 ```
 
 Piping a remote script into Bash should only be done from a repository you
@@ -187,9 +190,11 @@ VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:latest
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
-Backend images are published only from Git tags such as `v0.1.0`. The image
-tags `0.1.0`, `0.1` and `latest` then point to that release. Deploy uses
-`latest` by default, so `./update.sh` pulls the latest stable backend. Use an
+Backend and frontend share release **2.2.0**. After a reviewed `dev` → `main`
+release PR passes CI, each application repository publishes images, an annotated
+tag and a GitHub Release. Exact `2.2.0` and moving `2.2`/`latest` image tags are
+available for both components. Deploy defaults to `latest`; select both exact
+versions together for a coordinated upgrade as shown below. Use an
 exact tag or OCI digest when a production deployment must remain pinned.
 Private images require
 `docker login` before installation or update. Migration and bootstrap jobs
@@ -244,10 +249,10 @@ To switch the official backend to another exact release and update the stack:
 
 ```bash
 ./backup.sh
-./update.sh --backend-version 0.2.0
+./update.sh --backend-version 2.2.0
 ```
 
-The command also accepts the Git-style form `v0.2.0`. It deliberately replaces
+The command also accepts the Git-style form `v2.2.0`. It deliberately replaces
 `VOXHOLD_BACKEND_IMAGE` with the official GHCR image; edit `.env` directly when
 using a fork, custom registry or immutable digest. Review release notes and
 make a backup before changing versions.
@@ -316,10 +321,22 @@ contains a real Caddy + Guard HTTP/WS rate-limit integration test; see its
 `docs/audit-2.1.ru.md`. No production traffic is used by these checks.
 
 
+## Upgrading to Voxhold 2.2.0
+
+This release adds news channels, post discussions and notification counters.
+Upgrade the backend with migrations **000025–000026** before the frontend.
+Compose runs the migration task before starting the new backend. The updater
+creates a safety backup; retain it until the upgrade is verified.
+
+- [Backend releases](https://github.com/LoonEman1/voxhold-backend/releases)
+- [Frontend releases](https://github.com/LoonEman1/voxhold-frontend/releases)
+- [Migration and news-channel behavior](https://github.com/LoonEman1/voxhold-backend/blob/main/docs/news-channels.md)
+- [Interface screenshots](https://github.com/LoonEman1/voxhold-frontend#interface-examples)
+
 For paired releases, select both versions in one update:
 
 ```sh
-./update.sh --backend-version 2.1.0 --frontend-version 2.1.0
+./update.sh --backend-version 2.2.0 --frontend-version 2.2.0
 ```
 
 The updater captures the actually running image references and image digests
