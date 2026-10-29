@@ -92,6 +92,31 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(any(call[:2]==['compose','up'] for call in calls))
         self.assertFalse((self.root/'backup.done').exists())
 
+    def cleanup_helper(self, failing=False):
+        (self.root/'cleanup-images.py').write_text("from pathlib import Path\nPath('cleanup.done').touch()\n" + ("raise RuntimeError('test cleanup failure')\n" if failing else ""))
+
+    def test_cleanup_runs_only_after_both_components_are_healthy(self):
+        self.cleanup_helper()
+        result=self.run_update('--frontend-version','2.3.1',MOCK_UNHEALTHY='frontend')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((self.root/'cleanup.done').exists())
+        result=self.run_update('--frontend-version','2.3.1')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((self.root/'cleanup.done').exists())
+
+    def test_operator_can_keep_historical_images(self):
+        self.cleanup_helper()
+        result=self.run_update('--frontend-version','2.3.1',VOXHOLD_UPDATE_KEEP_IMAGES='1')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse((self.root/'cleanup.done').exists())
+
+    def test_cleanup_failure_does_not_fail_a_healthy_update(self):
+        self.cleanup_helper(failing=True)
+        result=self.run_update('--frontend-version','2.3.1')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('Update finished;',result.stdout)
+        self.assertTrue((self.root/'cleanup.done').exists())
+
     def test_version_selection_cannot_be_combined_with_rollback(self):
         result=self.run_update('--frontend-version','2.1.0','--rollback')
         self.assertNotEqual(result.returncode,0)
