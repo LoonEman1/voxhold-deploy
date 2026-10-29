@@ -1,3 +1,25 @@
+# Voxhold Deploy 2.4.0
+
+Релиз от 29 октября 2026 года для backend/frontend 2.4.0.
+
+- Исправлена структура восстановления: файлы базы и вложений попадают в корень
+  data volume; лишний каталог data/ больше не создаётся.
+- Перезапись сначала полностью распаковывает архив и сохраняет прежнее дерево;
+  ошибка копирования запускает восстановление прежних данных.
+- Манифест backup хранит фактические работающие образы, даже если updater уже
+  выбрал новые версии в .env. Исправлено удаление старых checksum-sidecar файлов.
+- Безопасное восстановление создаёт отдельный volume; инструкция переключения
+  сохраняет старый volume и использует Compose override без volume rename.
+- Добавлены реальные Docker-тесты восстановления SQLite, вложений и манифеста.
+
+Restore now places database/media at the volume root, stages replacements before
+mutation and preserves the previous tree for error recovery. Backup manifests
+record the running images rather than the requested update. Safe restore keeps
+the production volume and prints a Compose override mapping for the new volume.
+
+Before upgrading, retain a verified database/media backup. Apply backend 2.4.0
+migration 000031 before frontend 2.4.0.
+
 # Voxhold 2.3.0
 
 Накопительный минорный релиз от 28 октября 2026 года. Изменения относительно
