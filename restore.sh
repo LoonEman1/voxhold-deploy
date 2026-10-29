@@ -44,7 +44,7 @@ done
 [[ "$archive" == *.tar.gz ]] || { echo "Expected a .tar.gz archive." >&2; exit 1; }
 [[ "$(basename "$archive")" != *.partial ]] || { echo "Refusing to restore a .partial archive." >&2; exit 1; }
 
-backend_container="$(docker compose ps -q backend)"
+backend_container="$(docker compose ps -a -q backend)"
 [[ -n "$backend_container" ]] || { echo "Backend container is not created." >&2; exit 1; }
 
 current_volume="$(docker inspect -f \
@@ -87,7 +87,33 @@ if (( into_existing )); then
     docker run --rm -i \
         --volume "$target_volume:/app" \
         alpine:3.22 \
-        sh -c 'rm -rf /app/data && tar xz -C /app && chown -R 10001:10001 /app/data && chmod 770 /app/data' \
+        sh -c '
+            set -e
+            mkdir /incoming
+            tar xz -C /incoming data
+            test -d /incoming/data
+            # Stage the incoming tree completely and preserve the current tree
+            # before touching the volume root. Recover it if replacement fails.
+            tar cf /previous.tar -C /app .
+            replacing=0
+            recover() {
+                code=$?
+                trap - EXIT
+                if [ "$code" -ne 0 ] && [ "$replacing" = 1 ]; then
+                    rm -rf /incoming/data
+                    find /app -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+                    tar xf /previous.tar -C /app || echo "WARNING: restore rollback failed; recover from the verified archive" >&2
+                fi
+                exit "$code"
+            }
+            trap recover EXIT
+            replacing=1
+            find /app -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            cp -a /incoming/data/. /app/
+            chown -R 10001:10001 /app
+            chmod 770 /app
+            trap - EXIT
+        '  \
         <"$archive"
     trap - EXIT
     if (( backend_was_running )); then
@@ -95,25 +121,29 @@ if (( into_existing )); then
     fi
     echo "Restore complete: production volume $target_volume was replaced."
 else
-    target_volume="voxhold_data_restore_$(date -u +%Y%m%dT%H%M%SZ)"
+    target_volume="voxhold_data_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$"
     docker volume create "$target_volume" >/dev/null
     echo "Restoring into a NEW volume $target_volume ..."
     docker run --rm -i \
         --volume "$target_volume:/app" \
         alpine:3.22 \
-        sh -c 'tar xz -C /app && chown -R 10001:10001 /app/data && chmod 770 /app/data' \
+        sh -c 'set -e; tar xz -C /app --strip-components=1 data; chown -R 10001:10001 /app; chmod 770 /app' \
         <"$archive"
 
     cat <<EOF
 
 Safe restore complete. The production volume ($current_volume) was NOT modified.
 
-To switch over manually:
-  cd $DEPLOY_DIR
-  docker compose stop backend caddy frontend
-  docker volume rm $current_volume            # deletes old data!
-  docker volume rename $target_volume $current_volume
-  docker compose up -d
+To switch over, keep the old volume and merge this volume mapping into a
+recovery Compose override (do not overwrite an existing override):
+
+volumes:
+  voxhold_data:
+    external: true
+    name: $target_volume
+
+Select the image versions matching the backup manifest, then use that override
+with docker compose up -d. Do not delete $current_volume until recovery is verified.
 
 To discard the restored copy instead:
   docker volume rm $target_volume

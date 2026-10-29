@@ -48,7 +48,7 @@ fi
 
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
 
-backend_container="$(docker compose ps -q backend)"
+backend_container="$(docker compose ps -a -q backend)"
 [[ -n "$backend_container" ]] || die "backend container is not created."
 
 # Remember whether the backend served traffic before the backup so that the
@@ -98,10 +98,17 @@ if [[ -n "$data_kb" ]] && [[ "$data_kb" =~ ^[0-9]+$ ]] && (( data_kb > 0 )); the
 fi
 
 # Disaster-recovery manifest: enough to rebuild elsewhere, zero secrets.
-backend_image="$(env_value VOXHOLD_BACKEND_IMAGE)"
-frontend_image="$(env_value VOXHOLD_FRONTEND_IMAGE)"
-backend_digest="$(docker inspect -f '{{index .RepoDigests 0}}' "$backend_container" 2>/dev/null \
-    || docker inspect -f '{{.Image}}' "$backend_container")"
+# .env may already contain the requested NEW release when update.sh calls us.
+# Recovery metadata must identify the containers whose data is being backed up.
+backend_image="$(docker inspect -f '{{.Config.Image}}' "$backend_container")"
+frontend_container="$(docker compose ps -q frontend 2>/dev/null || true)"
+frontend_image=""
+if [[ -n "$frontend_container" ]]; then
+    frontend_image="$(docker inspect -f '{{.Config.Image}}' "$frontend_container")"
+fi
+backend_image_id="$(docker inspect -f '{{.Image}}' "$backend_container")"
+backend_digest="$(docker image inspect -f '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$backend_image_id" 2>/dev/null || true)"
+backend_digest="${backend_digest:-$backend_image_id}"
 backend_digest="$(printf '%s' "$backend_digest" | tr -d '[:space:]')"
 backend_digest="${backend_digest//$'\n'/}"
 backend_digest="${backend_digest//$'\r'/}"
@@ -147,7 +154,7 @@ sha256sum "$final_name" | awk '{print $1}' >"$sha_name"
 
 # Retention: keep the newest keep_count archives (+ checksum sidecars).
 while IFS= read -r stale_archive; do
-    rm -f -- "$stale_archive" "${stale_archive%.tar.gz}.sha256"
+    rm -f -- "$stale_archive" "${stale_archive}.sha256"
 done < <(ls -1t backups/voxhold-*.tar.gz 2>/dev/null | tail -n +"$((keep_count + 1))")
 
 # Offsite copy: directory mirror or custom command (rsync/rclone/restic).

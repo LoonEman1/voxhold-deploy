@@ -45,11 +45,11 @@ curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/boots
 ```
 
 После публикации тега релиза для воспроизводимой production-установки укажите
-его вместо `main` в обоих местах. Например, для `v2.3.0`:
+его вместо `main` в обоих местах. Например, для `v2.4.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.3.0/bootstrap.sh \
-  | VOXHOLD_DEPLOY_REF=v2.3.0 bash
+curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.4.0/bootstrap.sh \
+  | VOXHOLD_DEPLOY_REF=v2.4.0 bash
 ```
 
 Передавать удалённый скрипт напрямую в Bash следует только из доверенного
@@ -190,10 +190,10 @@ VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:latest
 VOXHOLD_FRONTEND_IMAGE=ghcr.io/example/custom-voxhold-ui@sha256:<digest>
 ```
 
-Backend и frontend используют общий номер релиза, сейчас **2.3.0**.
+Backend и frontend используют общий номер релиза, сейчас **2.4.0**.
 После проверенного слияния релизного PR `dev` → `main` CI соответствующего
 репозитория публикует образы, аннотированный тег и GitHub Release. Для backend
-и frontend доступны точные теги `2.3.0` и перемещаемые `2.3`/`latest`.
+и frontend доступны точные теги `2.4.0` и перемещаемые `2.3`/`latest`.
 Deploy по умолчанию использует `latest`; для согласованного обновления выбирайте
 обе точные версии одной командой ниже. Для предсказуемого production-развёртывания можно указать
 точный тег или OCI digest. Для приватных образов
@@ -249,10 +249,10 @@ docker compose logs --tail=100 caddy
 
 ```bash
 ./backup.sh
-./update.sh --backend-version 2.3.0
+./update.sh --backend-version 2.4.0
 ```
 
-Команда также принимает Git-форму `v2.3.0`. Она намеренно заменяет
+Команда также принимает Git-форму `v2.4.0`. Она намеренно заменяет
 `VOXHOLD_BACKEND_IMAGE` на официальный GHCR-образ; для fork, собственного
 registry или неизменяемого digest отредактируйте `.env` вручную. Перед сменой
 версии прочитайте описание релиза и создайте резервную копию.
@@ -321,7 +321,7 @@ HTTP-порт backend не публикуется за пределы compose-с
 лимитов, разных клиентов и подставных заголовков; команды в `docs/audit-2.1.ru.md`.
 
 
-## Обновление до Voxhold 2.3.0
+## Обновление до Voxhold 2.4.0
 
 Релиз добавляет вложения и общие квоты, личные и групповые беседы, входящие,
 пользовательские роли и обсуждения в текстовых каналах.
@@ -331,13 +331,13 @@ Compose запускает задачу миграций перед новым b
 
 - [Релизы backend](https://github.com/LoonEman1/voxhold-backend/releases)
 - [Релизы frontend](https://github.com/LoonEman1/voxhold-frontend/releases)
-- [Миграции, общение и хранилище 2.3](https://github.com/LoonEman1/voxhold-backend/blob/v2.3.0/docs/community-2.3.md)
+- [Миграции, общение и хранилище 2.3](https://github.com/LoonEman1/voxhold-backend/blob/v2.4.0/docs/community-2.3.md)
 - [Скриншоты интерфейса](https://github.com/LoonEman1/voxhold-frontend/blob/main/README.ru.md#примеры-интерфейса)
 
 Для общего релиза выбирайте обе версии одним запуском:
 
 ```sh
-./update.sh --backend-version 2.3.0 --frontend-version 2.3.0
+./update.sh --backend-version 2.4.0 --frontend-version 2.4.0
 ```
 
 Updater сохраняет ссылки и digest фактически запущенных образов **до** изменения
@@ -349,4 +349,4 @@ Updater сохраняет ссылки и digest фактически запу�
 
 В 2.3 вложения сохраняются в `data/attachments` на том же постоянном томе, что
 и записи/БД. Владелец управляет общими квотами и очисткой из настроек сервера.
-Бэкап должен включать весь каталог данных. [Миграции и API](https://github.com/LoonEman1/voxhold-backend/blob/v2.3.0/docs/community-2.3.md).
+Бэкап должен включать весь каталог данных. [Миграции и API](https://github.com/LoonEman1/voxhold-backend/blob/v2.4.0/docs/community-2.3.md).
