@@ -346,3 +346,16 @@ changes, preserves it during rollback, and exits with failure if either official
 application component stays unhealthy. Test with
 `python3 -m unittest discover -s tests -p test_updater.py -v` on Linux; Docker is
 mocked and no service is modified by those regression tests.
+
+
+### Место после обновлений
+
+Docker сохраняет загруженные образы предыдущих версий. Остановленные служебные
+контейнеры почти не занимают места, но старые образы накапливаются. После успешной
+проверки здоровья updater очищает неиспользуемые образы только двух официальных
+репозиториев Voxhold. Образы всех контейнеров, точка отката `.last-good.env`,
+операторские теги, данные, тома и резервные копии сохраняются.
+
+Для предварительного просмотра: `python3 cleanup-images.py`; для очистки:
+`python3 cleanup-images.py --apply`. `VOXHOLD_UPDATE_KEEP_IMAGES=1 ./update.sh`
+отключает автоматическую очистку. Глобальный `docker system prune` не используется.
