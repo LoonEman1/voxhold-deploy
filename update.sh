@@ -426,5 +426,12 @@ for service in backend frontend; do
     fi
 done
 
+# Only after both applications are healthy: reclaim obsolete official images.
+# The helper preserves all container images and the immutable rollback manifest.
+# Operators may keep additional historical images with VOXHOLD_UPDATE_KEEP_IMAGES=1.
+if [[ "${VOXHOLD_UPDATE_KEEP_IMAGES:-0}" != "1" && -f "$DEPLOY_DIR/cleanup-images.py" ]]; then
+    python3 "$DEPLOY_DIR/cleanup-images.py" --apply || echo "Image cleanup skipped; deployment remains healthy." >&2
+fi
+
 echo "Update finished; rollback point is preserved in .last-good.env."
 docker compose ps
