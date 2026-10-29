@@ -44,7 +44,7 @@ done
 [[ "$archive" == *.tar.gz ]] || { echo "Expected a .tar.gz archive." >&2; exit 1; }
 [[ "$(basename "$archive")" != *.partial ]] || { echo "Refusing to restore a .partial archive." >&2; exit 1; }
 
-backend_container="$(docker compose ps -q backend)"
+backend_container="$(docker compose ps -a -q backend)"
 [[ -n "$backend_container" ]] || { echo "Backend container is not created." >&2; exit 1; }
 
 current_volume="$(docker inspect -f \

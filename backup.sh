@@ -48,7 +48,7 @@ fi
 
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
 
-backend_container="$(docker compose ps -q backend)"
+backend_container="$(docker compose ps -a -q backend)"
 [[ -n "$backend_container" ]] || die "backend container is not created."
 
 # Remember whether the backend served traffic before the backup so that the

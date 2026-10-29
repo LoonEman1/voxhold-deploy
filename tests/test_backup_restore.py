@@ -47,7 +47,7 @@ class BackupRestoreTests(unittest.TestCase):
         Path(str(self.archive) + '.sha256').write_text(hashlib.sha256(self.archive.read_bytes()).hexdigest())
         binary = self.root / 'bin'; binary.mkdir()
         docker = binary / 'docker'
-        docker.write_text("#!/usr/bin/env python3\nimport os,subprocess,sys\na=sys.argv[1:]\nif a[:3]==['compose','ps','-q']:\n print(os.environ['TEST_BACKEND'] if a[-1]=='backend' else '');sys.exit(0)\nif a[:2] in (['compose','stop'],['compose','start']): a=[a[1],os.environ['TEST_BACKEND']]\nsys.exit(subprocess.call([os.environ['REAL_DOCKER'],*a]))\n")
+        docker.write_text("#!/usr/bin/env python3\nimport os,subprocess,sys\na=sys.argv[1:]\nif a[:2]==['compose','ps'] and '-q' in a:\n running=subprocess.check_output([os.environ['REAL_DOCKER'],'inspect','-f','{{.State.Running}}',os.environ['TEST_BACKEND']],text=True).strip()=='true'\n print(os.environ['TEST_BACKEND'] if a[-1]=='backend' and ('-a' in a or running) else '');sys.exit(0)\nif a[:2] in (['compose','stop'],['compose','start']): a=[a[1],os.environ['TEST_BACKEND']]\nsys.exit(subprocess.call([os.environ['REAL_DOCKER'],*a]))\n")
         docker.chmod(0o755)
         self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'], TEST_BACKEND=self.container, REAL_DOCKER=shutil.which('docker'))
         (self.root / '.env').write_text('VOXHOLD_BACKEND_IMAGE=ghcr.io/looneman1/voxhold-backend:2.4.0\nVOXHOLD_FRONTEND_IMAGE=ghcr.io/looneman1/voxhold-frontend:2.4.0\nBACKUP_KEEP_COUNT=7\n')
