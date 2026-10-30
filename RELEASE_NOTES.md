@@ -1,3 +1,21 @@
+# Voxhold Deploy 2.5.0
+
+Релиз от 30 октября 2026 года для backend/frontend 2.5.0. Новых миграций нет.
+
+- Установщик и обновлятор выбирают опубликованный образ amd64-v1/v3 по
+  возможностям процессора и ОС. Неизвестный CPU остаётся на переносимом v1.
+- `VOXHOLD_AMD64=auto|v1|v3` сохраняется установщиком; v3 требует положительной
+  проверки CPU и наличия образа. Старые релизы используют переносимый тег.
+- До backup/остановки сервиса выполняется `voxhold --check-cpu` в отдельном
+  контейнере без зависимостей. Отказ проверки сохраняет работающий сервис.
+- Custom-образы, digest pins, экспортированный override и точный образ rollback
+  сохраняются. CPU helper входит в проверяемый комплект bootstrap.
+
+Installer/updater choose the published CPU variant and preflight the resolved
+backend image before stopping services. Custom images, digest pins and exact
+rollback references remain operator-controlled. No deployment is triggered by
+publishing this release.
+
 # Voxhold Deploy 2.4.0
 
 Релиз от 29 октября 2026 года для backend/frontend 2.4.0.
