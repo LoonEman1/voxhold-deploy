@@ -6,7 +6,7 @@
 	# the frontend nginx only covers its own responses, so the edge is the
 	# single place that protects all traffic.
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
