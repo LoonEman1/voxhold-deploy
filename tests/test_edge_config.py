@@ -11,15 +11,23 @@ ROOT = Path(__file__).resolve().parents[1]
 class EdgeConfigurationTests(unittest.TestCase):
     def test_both_public_edges_overwrite_real_ip(self):
         caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
-        self.assertTrue(caddy, "Caddy binary required; set CADDY_BIN")
+        self.assertTrue(caddy or shutil.which("docker"), "Caddy binary or Docker required; set CADDY_BIN")
         for name in ("Caddyfile", "Caddyfile.ip"):
             with self.subTest(config=name):
                 env = dict(os.environ, PUBLIC_HOST="example.test", CADDY_SITE_ADDRESS="example.test", EDGE_UPSTREAM="backend:8080")
-                result = subprocess.run([caddy, "adapt", "--adapter", "caddyfile", "--config", str(ROOT / name)], env=env, capture_output=True, check=True, text=True)
+                if caddy:
+                    command = [caddy, "adapt", "--adapter", "caddyfile", "--config", str(ROOT / name)]
+                else:
+                    command = ["docker", "run", "--rm", "-v", f"{ROOT}:/project:ro", "-e", "PUBLIC_HOST=example.test", "-e", "CADDY_SITE_ADDRESS=example.test", "-e", "EDGE_UPSTREAM=backend:8080", "caddy:2-alpine", "caddy", "adapt", "--adapter", "caddyfile", "--config", f"/project/{name}"]
+                result = subprocess.run(command, env=env, capture_output=True, check=True, text=True)
                 config = json.loads(result.stdout)
                 proxies = []
+                hsts = []
                 def visit(value):
                     if isinstance(value, dict):
+                        for key, item in value.items():
+                            if key.lower() == 'strict-transport-security':
+                                hsts.extend(item if isinstance(item, list) else [item])
                         if value.get("handler") == "reverse_proxy":
                             proxies.append(value)
                         for item in value.values():
@@ -29,6 +37,7 @@ class EdgeConfigurationTests(unittest.TestCase):
                             visit(item)
                 visit(config)
                 self.assertEqual(len(proxies), 2)
+                self.assertIn('max-age=31536000; includeSubDomains', hsts)
                 for proxy in proxies:
                     headers = proxy["headers"]["request"]["set"]
                     real_ip = next(value for key, value in headers.items() if key.lower() == "x-real-ip")
