@@ -12,6 +12,23 @@ FAKE_DOCKER = r"""#!/usr/bin/env python3
 import json, os, sys
 args=sys.argv[1:]
 with open(os.environ['MOCK_TRACE'],'a') as out: out.write(json.dumps(args)+'\n')
+if args[:2]==['compose','config'] and '--format' in args:
+    image=os.environ.get('VOXHOLD_BACKEND_IMAGE')
+    if not image:
+        for line in open('.env'):
+            if line.startswith('VOXHOLD_BACKEND_IMAGE='): image=line.split('=',1)[1].strip().strip(chr(34))
+    print('services:')
+    print('  backend:')
+    print('    image: '+image)
+    print('  bootstrap:')
+    print('    image: bootstrap:other')
+    print('  migrate:')
+    print('    image: migrate:other')
+    sys.exit(0)
+if args[:2]==['manifest','inspect']:
+    sys.exit(0 if args[-1] in os.environ.get('MOCK_CPU_TAGS','').split(',') else 1)
+if args[:2]==['compose','run'] and '--check-cpu' in args:
+    sys.exit(1 if os.environ.get('MOCK_CPU_FAIL')=='1' else 0)
 if args[:2]==['compose','ps'] and '-q' in args:
     print('old-'+args[-1]); sys.exit(0)
 if args and args[0]=='inspect':
@@ -23,6 +40,8 @@ if args and args[0]=='inspect':
     elif '.Image' in fmt: print('sha256:old-'+service)
     sys.exit(0)
 if args[:2]==['image','inspect']:
+    if 'io.voxhold.cpu-check' in ' '.join(args):
+        print('1' if os.environ.get('MOCK_CPU_CHECK')=='1' else '<no value>'); sys.exit(0)
     service='frontend' if 'frontend' in args[-1] else 'backend'
     print('ghcr.io/looneman1/voxhold-'+service+'@sha256:'+('2' if service=='frontend' else '1')*64)
     sys.exit(0)
@@ -36,6 +55,7 @@ class UpdaterTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         shutil.copyfile(SOURCE, self.root / 'update.sh')
+        shutil.copyfile(ROOT / 'cpu-images.sh', self.root / 'cpu-images.sh')
         binary = self.root / 'bin'; binary.mkdir()
         for name, text in {'docker': FAKE_DOCKER, 'sleep': '#!/bin/sh\nexit 0\n'}.items():
             path=binary/name;path.write_text(text);path.chmod(0o755)
@@ -116,6 +136,54 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('Update finished;',result.stdout)
         self.assertTrue((self.root/'cleanup.done').exists())
+
+    def test_cpu_preflight_failure_never_stops_the_running_backend(self):
+        result = self.run_update('--backend-version', '2.5.0', MOCK_CPU_CHECK='1', MOCK_CPU_FAIL='1')
+        self.assertNotEqual(result.returncode, 0)
+        calls = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        self.assertTrue(any('--check-cpu' in call for call in calls))
+        self.assertFalse(any(call[:2] == ['compose', 'up'] for call in calls))
+        self.assertFalse((self.root/'backup.done').exists())
+        self.assertFalse((self.root/'.last-good.env').exists())
+
+    def test_cpu_variant_is_selected_before_pull(self):
+        image = 'ghcr.io/looneman1/voxhold-backend:2.5.0-amd64-v1'
+        result = self.run_update('--backend-version', '2.5.0', VOXHOLD_AMD64='v1', MOCK_CPU_TAGS=image, MOCK_CPU_CHECK='1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(image, (self.root/'.env').read_text())
+        self.assertIn('voxhold-backend:2.0.0', self.manifest())
+        calls = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        pull = next(i for i, call in enumerate(calls) if call[:2] == ['compose', 'pull'])
+        probe = next(i for i, call in enumerate(calls) if '--check-cpu' in call)
+        start = next(i for i, call in enumerate(calls) if call[:2] == ['compose', 'up'])
+        self.assertLess(pull, probe)
+        self.assertLess(probe, start)
+
+    def test_image_environment_override_is_preflighted(self):
+        override = 'example.test/backend:cpu-v3'
+        result = self.run_update(VOXHOLD_BACKEND_IMAGE=override, MOCK_CPU_CHECK='1', MOCK_CPU_FAIL='1')
+        self.assertNotEqual(result.returncode, 0)
+        calls = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        self.assertTrue(any(call[:2] == ['image', 'inspect'] and call[-1] == override for call in calls))
+        self.assertFalse((self.root/'backup.done').exists())
+
+    def test_installer_persists_cpu_mode_for_later_updates(self):
+        shutil.copyfile(ROOT/'install.sh', self.root/'install.sh')
+        for name, script in {'uname': '#!/bin/sh\ncase $1 in -m) echo x86_64 ;; *) echo Linux ;; esac\n', 'curl': '#!/bin/sh\necho 203.0.113.10\n'}.items():
+            path = self.root/'bin'/name
+            path.write_text(script); path.chmod(0o755)
+        # English, backend-only, no autostart, default image, public IP,
+        # default name/owner, synthetic password, default WebRTC IP, no TURN.
+        answers = '1\n1\nn\n\n203.0.113.10\n\n\nLocalFixturePassword123!\n\nn\n'
+        installed = subprocess.run(['bash', 'install.sh'], cwd=self.root, env=dict(self.env, VOXHOLD_AMD64='v1'), input=answers, capture_output=True, text=True)
+        self.assertEqual(installed.returncode, 0, installed.stdout+installed.stderr)
+        self.assertIn('VOXHOLD_AMD64="v1"', (self.root/'.env').read_text())
+        # Use the real host architecture for the subsequent updater.
+        (self.root/'bin'/'uname').unlink()
+        image = 'ghcr.io/looneman1/voxhold-backend:2.5.0-amd64-v1'
+        updated = self.run_update('--backend-version', '2.5.0', MOCK_CPU_TAGS=image)
+        self.assertEqual(updated.returncode, 0, updated.stdout+updated.stderr)
+        self.assertIn(image, (self.root/'.env').read_text())
 
     def test_version_selection_cannot_be_combined_with_rollback(self):
         result=self.run_update('--frontend-version','2.1.0','--rollback')

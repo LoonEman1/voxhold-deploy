@@ -5,6 +5,9 @@ DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DEPLOY_DIR"
 umask 077
 
+amd64_mode="${VOXHOLD_AMD64:-auto}"
+case "$amd64_mode" in auto|v1|v3) ;; *) echo 'VOXHOLD_AMD64 must be auto, v1 or v3' >&2; exit 2 ;; esac
+
 echo "Language / Язык:"
 echo "  1) English"
 echo "  2) Русский"
@@ -331,6 +334,7 @@ fi
 
 cat > .env <<EOF
 COMPOSE_PROFILES=$(dotenv_quote "$compose_profiles")
+VOXHOLD_AMD64=$(dotenv_quote "$amd64_mode")
 VOXHOLD_BACKEND_IMAGE=$(dotenv_quote "$backend_image")
 VOXHOLD_FRONTEND_IMAGE=$(dotenv_quote "$frontend_image")
 VOXHOLD_FRONTEND_PORT=$(dotenv_quote "$frontend_port")
@@ -415,7 +419,10 @@ if [[ "$enable_docker_at_boot" == "true" ]]; then
 fi
 
 echo "$msg_pulling"
+. "$DEPLOY_DIR/cpu-images.sh"
+cpu_select_backend_image
 docker compose pull
+cpu_preflight_backend
 echo "$msg_starting"
 docker compose up -d
 docker compose ps

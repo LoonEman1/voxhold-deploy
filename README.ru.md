@@ -45,11 +45,11 @@ curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/boots
 ```
 
 После публикации тега релиза для воспроизводимой production-установки укажите
-его вместо `main` в обоих местах. Например, для `v2.4.0`:
+его вместо `main` в обоих местах. Например, для `v2.5.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.4.0/bootstrap.sh \
-  | VOXHOLD_DEPLOY_REF=v2.4.0 bash
+curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.5.0/bootstrap.sh \
+  | VOXHOLD_DEPLOY_REF=v2.5.0 bash
 ```
 
 Передавать удалённый скрипт напрямую в Bash следует только из доверенного
@@ -252,7 +252,7 @@ docker compose logs --tail=100 caddy
 ./update.sh --backend-version 2.4.0
 ```
 
-Команда также принимает Git-форму `v2.4.0`. Она намеренно заменяет
+Команда также принимает Git-форму `v2.5.0`. Она намеренно заменяет
 `VOXHOLD_BACKEND_IMAGE` на официальный GHCR-образ; для fork, собственного
 registry или неизменяемого digest отредактируйте `.env` вручную. Перед сменой
 версии прочитайте описание релиза и создайте резервную копию.
@@ -331,7 +331,7 @@ Compose запускает задачу миграций перед новым b
 
 - [Релизы backend](https://github.com/LoonEman1/voxhold-backend/releases)
 - [Релизы frontend](https://github.com/LoonEman1/voxhold-frontend/releases)
-- [Миграции, общение и хранилище 2.3](https://github.com/LoonEman1/voxhold-backend/blob/v2.4.0/docs/community-2.3.md)
+- [Миграции, общение и хранилище 2.3](https://github.com/LoonEman1/voxhold-backend/blob/v2.5.0/docs/community-2.3.md)
 - [Скриншоты интерфейса](https://github.com/LoonEman1/voxhold-frontend/blob/main/README.ru.md#примеры-интерфейса)
 
 Для общего релиза выбирайте обе версии одним запуском:
@@ -349,4 +349,24 @@ Updater сохраняет ссылки и digest фактически запу�
 
 В 2.3 вложения сохраняются в `data/attachments` на том же постоянном томе, что
 и записи/БД. Владелец управляет общими квотами и очисткой из настроек сервера.
-Бэкап должен включать весь каталог данных. [Миграции и API](https://github.com/LoonEman1/voxhold-backend/blob/v2.4.0/docs/community-2.3.md).
+Бэкап должен включать весь каталог данных. [Миграции и API](https://github.com/LoonEman1/voxhold-backend/blob/v2.5.0/docs/community-2.3.md).
+
+## Варианты CPU AMD64
+
+Новые релизы backend публикуют `X.Y.Z-amd64-v1` и `X.Y.Z-amd64-v3` в том же
+GHCR-репозитории. Каждый образ содержит один бинарник API, один bootstrap и
+переносимый инструмент миграций. Обычный тег `X.Y.Z` сохраняет поддержку AMD64
+v1 и ARM64. Варианта v2 нет.
+
+`install.sh` и `update.sh` автоматически выбирают v3 на Linux AMD64, если
+загрузчик glibc подтвердил полный набор инструкций x86-64-v3 и поддержку ОС.
+Для старых/неопределённых CPU и хостов musl без такого детектора выбирается v1.
+Выбранный образ проверяется командой `voxhold --check-cpu` до запуска или
+останавливающего backend бэкапа. При ошибке работающий стек не затрагивается.
+Старые релизы без CPU-тегов используют обычный переносимый тег. Свои registry
+и ссылки по digest сохраняются; rollback использует точную сохранённую ссылку.
+
+Для принудительного v1 добавьте `VOXHOLD_AMD64="v1"` в `.env` перед апдейтом
+или выполните `VOXHOLD_AMD64=v1 ./install.sh` при новой установке. По умолчанию
+используется `auto`; `v3` требует подтверждённой поддержки и опубликованного
+v3-тега. При обновлении скриптов сохраняйте рядом файл `cpu-images.sh`.

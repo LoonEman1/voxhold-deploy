@@ -378,7 +378,10 @@ write_last_good_manifest() {
 # set selected during installation — no CLI --profile flags required.
 # Pull first: downloading must not extend the downtime, and a failed pull
 # aborts before the running stack is touched.
+. "$DEPLOY_DIR/cpu-images.sh"
+if [[ "$do_rollback" != 1 ]]; then cpu_select_backend_image; fi
 docker compose pull
+cpu_preflight_backend
 
 # Save before touching the stack, so a failed health check still has the correct
 # rollback point. A rollback must not replace its own recovery manifest.
