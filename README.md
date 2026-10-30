@@ -46,11 +46,11 @@ curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/boots
 ```
 
 After publishing a release tag, use it instead of `main` in both locations for
-reproducible production installations. For example, for `v2.4.0`:
+reproducible production installations. For example, for `v2.5.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.4.0/bootstrap.sh \
-  | VOXHOLD_DEPLOY_REF=v2.4.0 bash
+curl -fsSL https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.5.0/bootstrap.sh \
+  | VOXHOLD_DEPLOY_REF=v2.5.0 bash
 ```
 
 Piping a remote script into Bash should only be done from a repository you
@@ -252,7 +252,7 @@ To switch the official backend to another exact release and update the stack:
 ./update.sh --backend-version 2.4.0
 ```
 
-The command also accepts the Git-style form `v2.4.0`. It deliberately replaces
+The command also accepts the Git-style form `v2.5.0`. It deliberately replaces
 `VOXHOLD_BACKEND_IMAGE` with the official GHCR image; edit `.env` directly when
 using a fork, custom registry or immutable digest. Review release notes and
 make a backup before changing versions.
@@ -331,7 +331,7 @@ creates a safety backup; retain it until the upgrade is verified.
 
 - [Backend releases](https://github.com/LoonEman1/voxhold-backend/releases)
 - [Frontend releases](https://github.com/LoonEman1/voxhold-frontend/releases)
-- [Community migration and storage behavior](https://github.com/LoonEman1/voxhold-backend/blob/v2.4.0/docs/community-2.3.md)
+- [Community migration and storage behavior](https://github.com/LoonEman1/voxhold-backend/blob/v2.5.0/docs/community-2.3.md)
 - [Interface screenshots](https://github.com/LoonEman1/voxhold-frontend#interface-examples)
 
 For paired releases, select both versions in one update:
@@ -359,3 +359,23 @@ Docker сохраняет загруженные образы предыдущи
 Для предварительного просмотра: `python3 cleanup-images.py`; для очистки:
 `python3 cleanup-images.py --apply`. `VOXHOLD_UPDATE_KEEP_IMAGES=1 ./update.sh`
 отключает автоматическую очистку. Глобальный `docker system prune` не используется.
+
+## AMD64 CPU variants
+
+New backend releases publish `X.Y.Z-amd64-v1` and `X.Y.Z-amd64-v3` in the same
+GHCR repository. Each image contains one API binary, one bootstrap binary and
+the portable migration tool. The regular `X.Y.Z` tag still supports AMD64 v1
+and ARM64. There is no v2 variant.
+
+`install.sh` and `update.sh` automatically choose v3 on Linux AMD64 when the
+host's glibc loader verifies the full x86-64-v3 ISA and OS support. Unknown/older
+hosts (including musl hosts without this detector) retain v1. The actual image
+is tested with `voxhold --check-cpu` before startup or the update backup. If
+preflight fails, the running stack is left alone. Older releases without CPU
+tags use the portable tag. Custom image repositories and digest pins are kept;
+rollback always retains its exact saved reference.
+
+To force the baseline, add `VOXHOLD_AMD64="v1"` to `.env` before running the
+updater (`VOXHOLD_AMD64=v1 ./install.sh` for a fresh install; this is persisted). `auto`
+is the default; `v3` explicitly requires verified support and an available v3
+tag. Keep `cpu-images.sh` beside both scripts when updating deploy sources.

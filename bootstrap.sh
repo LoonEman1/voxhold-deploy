@@ -70,6 +70,7 @@ required_files=(
     Caddyfile.ip
     install.sh
     update.sh
+    cpu-images.sh
     backup.sh
     .env.example
 )
