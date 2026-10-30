@@ -1,3 +1,16 @@
+# Voxhold Deploy 2.5.2
+
+Патч от 30 октября 2026 года для backend/frontend 2.5.2.
+
+- Оба публичных TLS edge отдают HSTS с includeSubDomains.
+- Сохранены выбор CPU-варианта backend, preflight, резервное копирование
+  и точный rollback из 2.5.0.
+- Backend 2.5.2 требует миграцию **000032**. Updater выполняет миграции до
+  запуска API; сначала обновляется backend, затем frontend.
+
+HSTS is applied at both TLS termination paths. The release publishes deployment
+sources; it does not connect to or modify an installed instance.
+
 # Voxhold Deploy 2.5.0
 
 Релиз от 30 октября 2026 года для backend/frontend 2.5.0. Новых миграций нет.
