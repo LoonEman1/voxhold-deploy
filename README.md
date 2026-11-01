@@ -143,6 +143,8 @@ TCP and UDP) and the relay range directly on the host. Required firewall ports:
 - `3478/tcp` + `3478/udp` — TURN client transport;
 - `49160-49559/udp` — relay allocations (`TURN_RELAY_PORT_MIN`–`MAX`).
 
+coturn runs with `--no-tcp-relay` (RFC 6062): browsers only need UDP relay allocations, and TCP relaying would let any TURN user open TCP connections to arbitrary addresses through the server.
+
 Because one shared `TURN_USERNAME` serves all clients, `TURN_USER_QUOTA` must
 remain `0`; the overall allocation limit is `TURN_TOTAL_QUOTA`, sized to the
 relay range (roughly one port per allocation). Widen the range and the
