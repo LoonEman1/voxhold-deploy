@@ -267,6 +267,7 @@ The backup briefly stops the backend, verifies the archive before publishing
 it, writes a checksum sidecar and a secret-free disaster-recovery manifest,
 keeps the newest `BACKUP_KEEP_COUNT` archives (default 7) and mirrors them
 offsite when `BACKUP_OFFSITE_DIR` or `BACKUP_OFFSITE_CMD` is set in `.env`.
+Backups are hot by default (database snapshot via `voxhold --backup-db`, no downtime; needs a 2.6+ backend); use `./backup.sh --cold` to stop the backend during the copy. `update.sh` always uses the cold mode.
 Schedule it with the provided units:
 
 ```bash

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistent cold SQLite backup: verifies the archive before publishing it,
+# Consistent SQLite backup (hot by default, --cold stops the backend): verifies the archive before publishing it,
 # restores the backend's original state on any failure, writes a DR manifest,
 # keeps a bounded set of archives and mirrors them offsite when configured.
 set -Eeuo pipefail
@@ -128,24 +128,60 @@ cat >"$manifest_file" <<EOF
 }
 EOF
 
-echo "Stopping backend briefly for a consistent SQLite backup..."
-docker compose stop backend
+# Hot mode (default) takes a VACUUM INTO snapshot of the live database and
+# copies the immutable attachment files while the backend keeps serving.
+# --cold (and update.sh) stop the backend first; so does a stopped backend.
+cold_mode=0
+for argument in "$@"; do
+    [[ "$argument" == "--cold" ]] && cold_mode=1
+done
+[[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" == "1" ]] && cold_mode=1
+(( backend_was_running )) || cold_mode=1
 
-# The helper reads the manifest from stdin and streams the tar to stdout:
-# no host-path binds, so the script behaves identically on any platform.
-# BusyBox tar cannot combine two -C switches, so stage a flat directory.
-docker run --rm -i \
-    --volumes-from "$backend_container" \
-    alpine:3.22 \
-    sh -c '
-        set -e
-        mkdir /out
-        cp -a /app/data /out/data
-        cat > /out/manifest.json
-        cd /out
-        exec tar czf - manifest.json data
-    ' \
-    <"$manifest_file" >"$partial_name"
+if (( cold_mode )); then
+    echo "Stopping backend briefly for a consistent SQLite backup..."
+    docker compose stop backend
+
+    # The helper reads the manifest from stdin and streams the tar to stdout:
+    # no host-path binds, so the script behaves identically on any platform.
+    # BusyBox tar cannot combine two -C switches, so stage a flat directory.
+    docker run --rm -i \
+        --volumes-from "$backend_container" \
+        alpine:3.22 \
+        sh -c '
+            set -e
+            mkdir /out
+            cp -a /app/data /out/data
+            cat > /out/manifest.json
+            cd /out
+            exec tar czf - manifest.json data
+        ' \
+        <"$manifest_file" >"$partial_name"
+else
+    echo "Taking an online database snapshot (the backend keeps running)..."
+    docker exec "$backend_container" voxhold --backup-db /app/data/.backup/voxhold.db \
+        || die "online snapshot failed (backend older than 2.6?); rerun with --cold"
+    # Attachment files are written through a temporary file and renamed, so
+    # copying them while the server runs is safe. The live database files and
+    # in-flight uploads are excluded; the verified snapshot replaces them.
+    docker run --rm -i \
+        --volumes-from "$backend_container" \
+        alpine:3.22 \
+        sh -c '
+            set -e
+            mkdir -p /out/data
+            cd /app/data
+            # A file may be removed by retention while tar runs; that is not fatal.
+            tar cf - --exclude=./voxhold.db --exclude=./voxhold.db-wal --exclude=./voxhold.db-shm \
+                --exclude="*.part" --exclude=./.backup . | tar xf - -C /out/data || true
+            cp /app/data/.backup/voxhold.db /out/data/voxhold.db
+            cat > /out/manifest.json
+            cd /out
+            exec tar czf - manifest.json data
+        ' \
+        <"$manifest_file" >"$partial_name"
+    docker exec "$backend_container" rm -rf /app/data/.backup >/dev/null 2>&1 || true
+fi
 
 # Verify before publishing: integrity first, then an atomic rename.
 tar -tzf "$partial_name" >/dev/null || die "archive verification failed"
