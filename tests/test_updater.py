@@ -45,6 +45,8 @@ if args[:2]==['image','inspect']:
     service='frontend' if 'frontend' in args[-1] else 'backend'
     print('ghcr.io/looneman1/voxhold-'+service+'@sha256:'+('2' if service=='frontend' else '1')*64)
     sys.exit(0)
+if args and args[0]=='exec' and 'migrate' in ' '.join(args):
+    print('version: '+os.environ.get('MOCK_SCHEMA','')); sys.exit(0)
 if args[:2]==['compose','pull'] and os.environ.get('MOCK_PULL_FAIL')=='1': sys.exit(1)
 """
 
@@ -104,6 +106,33 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(self.manifest(),original)
         self.assertFalse((self.root/'backup.done').exists())
         self.assertIn('voxhold-backend@sha256:'+'1'*64,(self.root/'.env').read_text())
+
+    def last_good_with_schema(self, schema, archive=None):
+        text='VOXHOLD_BACKEND_IMAGE="old:2.0.0"\nVOXHOLD_FRONTEND_IMAGE="old:2.0.0"\nSCHEMA_VERSION_BEFORE="'+schema+'"\n'
+        if archive: text+='BACKUP_ARCHIVE="'+archive+'"\n'
+        (self.root/'.last-good.env').write_text(text)
+
+    def test_rollback_refuses_after_a_schema_change_without_data_restore(self):
+        self.last_good_with_schema('5')
+        result=self.run_update('--rollback',MOCK_SCHEMA='7')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('--rollback --with-data',result.stderr)
+        self.assertNotIn('old:2.0.0',(self.root/'.env').read_text())
+
+    def test_rollback_with_data_restores_the_saved_archive(self):
+        (self.root/'backups').mkdir()
+        (self.root/'backups'/'voxhold-x.tar.gz').write_text('archive')
+        (self.root/'restore.sh').write_text('#!/bin/sh\necho "$@" > restore.args\n')
+        (self.root/'restore.sh').chmod(0o755)
+        self.last_good_with_schema('5','backups/voxhold-x.tar.gz')
+        result=self.run_update('--rollback','--with-data',MOCK_SCHEMA='7')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.root/'restore.args').read_text().split(),['backups/voxhold-x.tar.gz','--into-existing'])
+
+    def test_rollback_without_a_schema_change_needs_no_data_restore(self):
+        self.last_good_with_schema('7')
+        result=self.run_update('--rollback',MOCK_SCHEMA='7')
+        self.assertEqual(result.returncode,0,result.stderr)
 
     def test_failed_pull_never_touches_the_running_stack(self):
         result=self.run_update('--backend-version','2.1.0',MOCK_PULL_FAIL='1')
