@@ -310,6 +310,18 @@ docker run --rm --user 0 \
 ```
 
 
+## Forgot the owner password
+
+Email recovery does not exist, so the operator resets the password on the
+server (requires a Voxhold 2.6+ backend image):
+
+```bash
+./admin.sh reset-password <username>
+```
+
+The command prints a new random password once and revokes every session of
+that account. Log in with it and change it in the profile settings.
+
 ## Trusted client IP (2.1 audit)
 
 Both public Caddy configurations overwrite `X-Real-IP` with the TCP peer address;
