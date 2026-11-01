@@ -68,7 +68,8 @@ fi
 # 5. Containers running and not restart-looping.
 if command -v docker >/dev/null 2>&1; then
     for service in backend frontend caddy; do
-        id="$(docker compose ps -q "$service" 2>/dev/null || true)"
+        # -a: an exited or restarting container must report its state, not "missing".
+        id="$(docker compose ps -a -q "$service" 2>/dev/null || true)"
         [[ -n "$id" ]] || { [[ "$service" == caddy ]] && continue; fail "$service container is missing"; continue; }
         state="$(docker inspect -f '{{.State.Status}}' "$id" 2>/dev/null || echo unknown)"
         restarts="$(docker inspect -f '{{.RestartCount}}' "$id" 2>/dev/null || echo 0)"
@@ -95,8 +96,13 @@ if (( avail_mb < 1024 )); then fail "only ${avail_mb}MB free on $root"; else ok 
 if command -v ufw >/dev/null 2>&1; then
     status="$(ufw status 2>/dev/null || true)"
     if [[ "$status" == *"Status: active"* ]]; then
-        for port in 80/tcp 443/tcp "$(env_value WEBRTC_UDP_PORT)/udp"; do
-            [[ "$port" == "/udp" ]] && continue
+        # Same defaults as compose.yaml when .env does not set the ports.
+        ports=(80/tcp 443/tcp "$(env_value WEBRTC_UDP_PORT | grep . || echo 50000)/udp" "$(env_value WEBRTC_STREAM_UDP_PORT | grep . || echo 50001)/udp")
+        if [[ ",$profiles," == *,turn,* ]]; then
+            turn_port="$(env_value TURN_LISTEN_PORT | grep . || echo 3478)"
+            ports+=("$turn_port/udp" "$turn_port/tcp")
+        fi
+        for port in "${ports[@]}"; do
             if grep -q "^${port}[[:space:]]" <<<"$status"; then ok "ufw allows $port"; else warn "ufw has no rule for $port"; fi
         done
     else
