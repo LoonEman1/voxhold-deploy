@@ -401,7 +401,14 @@ restart_backend_on_failure() {
 trap restart_backend_on_failure EXIT
 if [[ "${VOXHOLD_UPDATE_SKIP_BACKUP:-0}" != "1" ]] && [[ "$do_rollback" != 1 ]]; then
     echo "Creating a safety backup before updating..."
-    VOXHOLD_BACKUP_LEAVE_STOPPED=1 ./backup.sh
+    backup_status=0
+    VOXHOLD_BACKUP_LEAVE_STOPPED=1 ./backup.sh || backup_status=$?
+    # Exit 2: the local archive exists, only the offsite copy failed.
+    if (( backup_status == 2 )); then
+        echo "WARNING: safety backup created locally, but the offsite copy failed." >&2
+    elif (( backup_status != 0 )); then
+        exit "$backup_status"
+    fi
     backend_left_stopped=1
 fi
 

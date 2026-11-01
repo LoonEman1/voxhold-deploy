@@ -86,6 +86,23 @@ else
     fi
 fi
 
+# 4. Offsite copy status written by backup.sh.
+if [[ -n "$(cfg BACKUP_OFFSITE_DIR '')$(cfg BACKUP_OFFSITE_CMD '')" ]]; then
+    offsite_status_file="backups/.offsite-status"
+    if [[ ! -f "$offsite_status_file" ]]; then
+        add_problem "offsite backup is configured but no offsite copy has completed yet"
+    elif [[ "$(cut -d' ' -f1 "$offsite_status_file")" != "ok" ]]; then
+        add_problem "last offsite backup copy failed ($(cat "$offsite_status_file"))"
+    else
+        offsite_age_hours=$(( ($(date +%s) - $(stat -c %Y "$offsite_status_file")) / 3600 ))
+        if (( offsite_age_hours > backup_max_age_hours )); then
+            add_problem "last offsite backup copy is ${offsite_age_hours}h old (> ${backup_max_age_hours}h)"
+        else
+            add_ok "offsite backup copy ${offsite_age_hours}h old"
+        fi
+    fi
+fi
+
 message="Voxhold watchdog $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 ${report[*]}"
 
