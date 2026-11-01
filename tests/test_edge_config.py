@@ -57,5 +57,13 @@ class EdgeConfigurationTests(unittest.TestCase):
         self.assertFalse(config["services"]["frontend"].get("ports"))
         self.assertTrue(set(backend["networks"]) & set(config["services"]["caddy"]["networks"]))
 
+    def test_caddy_drops_all_capabilities_except_port_binding(self):
+        with tempfile.TemporaryDirectory() as project:
+            (Path(project) / ".env").write_text("", encoding="utf-8")
+            result = subprocess.run(["docker", "compose", "--project-directory", project, "--project-name", "voxhold-edge-test", "--env-file", str(ROOT / ".env.example"), "-f", str(ROOT / "compose.yaml"), "config", "--format", "json"], capture_output=True, check=True, text=True)
+        caddy = json.loads(result.stdout)["services"]["caddy"]
+        self.assertEqual(caddy["cap_drop"], ["ALL"])
+        self.assertEqual(caddy["cap_add"], ["NET_BIND_SERVICE"])
+
 if __name__ == "__main__":
     unittest.main()
