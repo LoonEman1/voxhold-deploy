@@ -57,5 +57,12 @@ class EdgeConfigurationTests(unittest.TestCase):
         self.assertFalse(config["services"]["frontend"].get("ports"))
         self.assertTrue(set(backend["networks"]) & set(config["services"]["caddy"]["networks"]))
 
+    def test_coturn_does_not_relay_tcp(self):
+        with tempfile.TemporaryDirectory() as project:
+            (Path(project) / ".env").write_text("", encoding="utf-8")
+            result = subprocess.run(["docker", "compose", "--project-directory", project, "--project-name", "voxhold-edge-test", "--env-file", str(ROOT / ".env.example"), "--profile", "turn", "-f", str(ROOT / "compose.yaml"), "config", "--format", "json"], capture_output=True, check=True, text=True)
+        command = json.loads(result.stdout)["services"]["coturn"]["command"]
+        self.assertIn("--no-tcp-relay", command)
+
 if __name__ == "__main__":
     unittest.main()
