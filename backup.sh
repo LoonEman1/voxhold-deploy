@@ -69,14 +69,15 @@ cleanup() {
     local status=$?
     rm -f -- "$manifest_file"
     rm -f -- "$partial_name"
-    if (( status != 0 )); then
+    # Exit 2 = archive published, only the offsite copy failed: not a backup failure.
+    if (( status != 0 && status != 2 )); then
         echo "Backend state restored; nothing was published." >&2
     fi
     # Bring the backend back exactly when it was serving before the backup.
     # update.sh sets VOXHOLD_BACKUP_LEAVE_STOPPED=1 after a successful backup
     # so the new image starts right away: one restart instead of two.
     if (( backend_was_running )) &&
-       { (( status != 0 )) || [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" != "1" ]]; }; then
+       { (( status != 0 && status != 2 )) || [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" != "1" ]]; }; then
         docker compose start backend >/dev/null 2>&1 \
             || echo "WARNING: could not restart backend automatically; run: docker compose start backend" >&2
     fi
@@ -218,22 +219,38 @@ while IFS= read -r stale_archive; do
 done < <(ls -1t backups/voxhold-*.tar.gz 2>/dev/null | tail -n +"$((keep_count + 1))")
 
 # Offsite copy: directory mirror or custom command (rsync/rclone/restic).
+# {} in the command is replaced by the shell-quoted archive path; "$1" works too.
 offsite_note="not configured"
+offsite_failed=0
 if [[ -n "$offsite_dir" ]]; then
-    mkdir -p "$offsite_dir"
-    cp -f -- "$final_name" "$sha_name" "$offsite_dir/"
-    offsite_note="$offsite_dir"
+    if mkdir -p "$offsite_dir" && cp -f -- "$final_name" "$sha_name" "$offsite_dir/"; then
+        offsite_note="$offsite_dir"
+    else
+        echo "WARNING: offsite directory copy failed." >&2
+        offsite_note="$offsite_dir FAILED"
+        offsite_failed=1
+    fi
 elif [[ -n "$offsite_cmd" ]]; then
-    if bash -c "$offsite_cmd" '$final_name'; then
+    quoted_archive="$(printf '%q' "$final_name")"
+    expanded_cmd="${offsite_cmd//\{\}/$quoted_archive}"
+    if bash -c "$expanded_cmd" voxhold-offsite "$final_name"; then
         offsite_note="custom command"
     else
         echo "WARNING: offsite command failed." >&2
         offsite_note="custom command FAILED"
+        offsite_failed=1
     fi
+fi
+if [[ -n "$offsite_dir$offsite_cmd" ]]; then
+    if (( offsite_failed )); then offsite_state=failed; else offsite_state=ok; fi
+    printf '%s %s\n' "$offsite_state" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >backups/.offsite-status
 fi
 
 echo "Backup created: backups/$backup_name"
 echo "Checksum:      backups/$backup_name.sha256"
 echo "Offsite:       $offsite_note"
 echo "Retention:     keeping $keep_count newest archives"
+
+# Exit 2: the archive is published locally but the configured offsite copy failed.
+if (( offsite_failed )); then exit 2; fi
 

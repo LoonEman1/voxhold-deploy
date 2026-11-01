@@ -110,6 +110,30 @@ class BackupRestoreTests(unittest.TestCase):
             self.assertEqual(backup.extractfile('data/obsolete.txt').read(), b'old attachment')
             self.assertFalse([name for name in backup.getnames() if '.backup' in name])
 
+    def run_offsite_backup(self, command):
+        offsite = self.root / 'offsite'
+        offsite.mkdir()
+        env = dict(self.env, BACKUP_OFFSITE_CMD=command.replace('<tmp>', str(offsite)))
+        result = subprocess.run(['bash', 'backup.sh'], cwd=self.root, env=env, capture_output=True, text=True)
+        return result, offsite
+
+    def test_offsite_command_expands_braces_placeholder(self):
+        result, offsite = self.run_offsite_backup("cp {} '<tmp>/'")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(list(offsite.glob('voxhold-*.tar.gz'))), 1)
+        self.assertTrue((self.root / 'backups' / '.offsite-status').read_text().startswith('ok '))
+
+    def test_offsite_command_receives_archive_as_first_argument(self):
+        result, offsite = self.run_offsite_backup("cp \"$1\" '<tmp>/'")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(list(offsite.glob('voxhold-*.tar.gz'))), 1)
+
+    def test_failed_offsite_command_exits_2_and_keeps_local_archive(self):
+        result, _ = self.run_offsite_backup('false')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(len(list((self.root / 'backups').glob('voxhold-*.tar.gz'))), 1)
+        self.assertTrue((self.root / 'backups' / '.offsite-status').read_text().startswith('failed '))
+
     def test_backup_manifest_records_running_image_instead_of_requested_update(self):
         subprocess.run(['docker', 'start', self.container], check=True, capture_output=True)
         result = subprocess.run(['bash', 'backup.sh', '--cold'], cwd=self.root, env=self.env, capture_output=True, text=True)
