@@ -1,3 +1,20 @@
+# Voxhold Deploy 2.6.0
+
+Релиз от 2 ноября 2026 года для backend/frontend 2.6.0.
+
+- Updater применяет миграции **000034–000040** до запуска API и обновляет backend
+  перед frontend; откат учитывает версию схемы (BUG-05).
+- Персональные временные TURN-логины (SEC-05): `WEBRTC_TURN_SECRET` вместо общего
+  пароля, updater переносит старый логин. Coturn больше не выделяет TCP-relay.
+- `doctor.sh` для самопроверки установки (FEAT-04), `admin.sh reset-password` (SEC-07).
+- Горячий бэкап (OPT-01); offsite-команда получает путь архива, сбой копии
+  возвращает код 2 и поднимает тревогу watchdog.
+- Проверки готовности в watchdog и updater (BUG-03).
+- Caddy работает без capabilities, кроме привязки портов.
+- Новые значения по умолчанию: `WS_MAX_CONNECTIONS_PER_IP=50`,
+  `RATE_LIMIT_IPV6_PREFIX=64`, `HTTP_IP_MULTIPLIER=4`.
+- CI: Dependabot и сканирование зависимостей.
+
 # Voxhold Deploy 2.5.3
 
 Патч от 31 октября 2026 года для backend/frontend 2.5.3.
