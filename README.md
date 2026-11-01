@@ -143,7 +143,8 @@ TCP and UDP) and the relay range directly on the host. Required firewall ports:
 - `3478/tcp` + `3478/udp` — TURN client transport;
 - `49160-49559/udp` — relay allocations (`TURN_RELAY_PORT_MIN`–`MAX`).
 
-Because one shared `TURN_USERNAME` serves all clients, `TURN_USER_QUOTA` must
+TURN logins are per-user and time-limited (HMAC of `WEBRTC_TURN_SECRET`, minted by
+the backend), but coturn cannot track a user quota across them, so `TURN_USER_QUOTA` must
 remain `0`; the overall allocation limit is `TURN_TOTAL_QUOTA`, sized to the
 relay range (roughly one port per allocation). Widen the range and the
 matching firewall rules together — a quota above the real port capacity would

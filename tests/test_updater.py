@@ -79,6 +79,17 @@ class UpdaterTests(unittest.TestCase):
         self.assertIn('voxhold-backend@sha256:'+'1'*64,self.manifest())
         self.assertTrue((self.root/'backup.done').exists())
 
+    def test_static_turn_password_is_migrated_to_a_secret(self):
+        env = self.root/'.env'
+        env.write_text(env.read_text()+'TURN_PASSWORD="old-shared-password"\nWEBRTC_CLIENT_ICE_USERNAME="voxhold"\nWEBRTC_CLIENT_ICE_CREDENTIAL="old-shared-password"\n')
+        result=self.run_update()
+        self.assertEqual(result.returncode,0,result.stderr)
+        desired=dict(line.split('=',1) for line in env.read_text().splitlines() if '=' in line)
+        self.assertRegex(desired['WEBRTC_TURN_SECRET'].strip('"'),r'^[A-Za-z0-9]{48}$')
+        for key in ['TURN_PASSWORD','WEBRTC_CLIENT_ICE_USERNAME','WEBRTC_CLIENT_ICE_CREDENTIAL']:
+            self.assertEqual(desired[key].strip('"'),'',key)
+        self.assertNotIn('old-shared-password',env.read_text())
+
     def test_paired_release_selects_both_images(self):
         result=self.run_update('--backend-version','2.1.0','--frontend-version','v2.1.0')
         self.assertEqual(result.returncode,0,result.stderr)

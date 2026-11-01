@@ -162,7 +162,9 @@ services:
       - "--listening-port=${TURN_LISTEN_PORT:-3478}"
       - "--fingerprint"
       - "--lt-cred-mech"
-      - "--user=${TURN_USERNAME:-voxhold}:${TURN_PASSWORD:-}"
+      # Per-user, time-limited credentials issued by the backend (TURN REST API).
+      - "--use-auth-secret"
+      - "--static-auth-secret=${WEBRTC_TURN_SECRET:-}"
       - "--realm=${TURN_REALM:-voxhold}"
       - "--external-ip=${WEBRTC_PUBLIC_IP:-}"
       - "--min-port=${TURN_RELAY_PORT_MIN:-49160}"

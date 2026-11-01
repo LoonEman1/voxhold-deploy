@@ -195,7 +195,7 @@ if ! has_env_key COMPOSE_PROFILES; then
     if is_ipv6_address "$built_in_turn_host"; then
         built_in_turn_host="[$built_in_turn_host]"
     fi
-    if [[ -n "$(env_value TURN_PASSWORD)" ]] &&
+    if [[ -n "$(env_value TURN_PASSWORD)$(env_value WEBRTC_TURN_SECRET)" ]] &&
        [[ "$client_ice_servers" == *"turn:${built_in_turn_host}:${turn_listen_port_for_profiles}?"* ]]; then
         compose_profiles="${compose_profiles:+$compose_profiles,}turn"
     fi
@@ -309,6 +309,17 @@ replace_env_key() {
     chmod 600 "$temporary_env"
     mv -- "$temporary_env" .env
 }
+
+# Voxhold 2.6: replace the shared static TURN password by a secret used to
+# mint per-user, time-limited credentials (needs a 2.6+ backend, shipped in the
+# same release as this compose file).
+if [[ -n "$(env_value TURN_PASSWORD)" && -z "$(env_value WEBRTC_TURN_SECRET)" ]]; then
+    echo "Migrating TURN authentication to per-user credentials..."
+    replace_env_key WEBRTC_TURN_SECRET "$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-48)"
+    for key in WEBRTC_CLIENT_ICE_USERNAME WEBRTC_CLIENT_ICE_CREDENTIAL WEBRTC_ICE_USERNAME WEBRTC_ICE_CREDENTIAL TURN_PASSWORD; do
+        if has_env_key "$key"; then replace_env_key "$key" ""; fi
+    done
+fi
 
 # Capture the actual running images BEFORE editing the desired .env version.
 # Container inspect has no RepoDigests: resolve its image ID with image inspect.
