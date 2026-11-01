@@ -138,6 +138,21 @@ done
 [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" == "1" ]] && cold_mode=1
 (( backend_was_running )) || cold_mode=1
 
+# voxhold --backup-db exists since 2.6.0. An older binary does not know the
+# flag and would start a second server inside the container instead, so read
+# the image version label first; unlabeled (local) images count as current.
+backend_supports_hot_backup() {
+    local version
+    version="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$backend_container" 2>/dev/null || true)"
+    version="${version#v}"
+    [[ "$version" =~ ^([0-9]+)\.([0-9]+)\. ]] || return 0
+    (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 6) ))
+}
+if (( ! cold_mode )) && ! backend_supports_hot_backup; then
+    echo "NOTE: this backend image predates online snapshots (2.6); using the cold mode." >&2
+    cold_mode=1
+fi
+
 if (( cold_mode )); then
     echo "Stopping backend briefly for a consistent SQLite backup..."
     docker compose stop backend
@@ -152,6 +167,8 @@ if (( cold_mode )); then
             set -e
             mkdir /out
             cp -a /app/data /out/data
+            # A snapshot left by an interrupted hot backup is not data.
+            rm -rf /out/data/.backup
             cat > /out/manifest.json
             cd /out
             exec tar czf - manifest.json data
@@ -168,12 +185,19 @@ else
         --volumes-from "$backend_container" \
         alpine:3.22 \
         sh -c '
-            set -e
-            mkdir -p /out/data
+            set -e -o pipefail
+            mkdir -p /out
             cd /app/data
-            # A file may be removed by retention while tar runs; that is not fatal.
-            tar cf - --exclude=./voxhold.db --exclude=./voxhold.db-wal --exclude=./voxhold.db-shm \
-                --exclude="*.part" --exclude=./.backup . | tar xf - -C /out/data || true
+            # Retention may delete a file while it is copied; a fresh attempt
+            # then succeeds. Any other error (disk full, I/O) fails the backup
+            # instead of publishing an archive with missing files.
+            attempt=1
+            until rm -rf /out/data && mkdir /out/data &&
+                tar cf - --exclude=./voxhold.db --exclude=./voxhold.db-wal --exclude=./voxhold.db-shm \
+                    --exclude="*.part" --exclude=./.backup . | tar xf - -C /out/data; do
+                if [ "$attempt" -ge 3 ]; then echo "copying the data files failed" >&2; exit 1; fi
+                attempt=$((attempt + 1))
+            done
             cp /app/data/.backup/voxhold.db /out/data/voxhold.db
             cat > /out/manifest.json
             cd /out
