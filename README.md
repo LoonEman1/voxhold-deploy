@@ -145,7 +145,8 @@ TCP and UDP) and the relay range directly on the host. Required firewall ports:
 
 coturn runs with `--no-tcp-relay` (RFC 6062): browsers only need UDP relay allocations, and TCP relaying would let any TURN user open TCP connections to arbitrary addresses through the server.
 
-Because one shared `TURN_USERNAME` serves all clients, `TURN_USER_QUOTA` must
+TURN logins are per-user and time-limited (HMAC of `WEBRTC_TURN_SECRET`, minted by
+the backend), but coturn cannot track a user quota across them, so `TURN_USER_QUOTA` must
 remain `0`; the overall allocation limit is `TURN_TOTAL_QUOTA`, sized to the
 relay range (roughly one port per allocation). Widen the range and the
 matching firewall rules together — a quota above the real port capacity would
