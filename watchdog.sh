@@ -48,17 +48,46 @@ add_problem() { problems+=("$1"); report+=("FAIL: $1"); }
 add_warning() { warnings+=("$1"); report+=("WARN: $1"); }
 add_ok()      { report+=("OK: $1"); }
 
-# 1. Public endpoint (through Caddy, as real clients see it).
-http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$public_url/healthz" 2>/dev/null)" && curl_rc=0 || curl_rc=$?
+# 1. Public endpoint (through Caddy, as real clients see it). /readyz also
+# exercises the database, unlike the liveness-only /healthz.
+http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$public_url/readyz" 2>/dev/null)" && curl_rc=0 || curl_rc=$?
 if [[ $curl_rc -ne 0 ]]; then
     http_code=000
 fi
 case "$http_code" in
-    200|204) add_ok "healthz answered HTTP $http_code" ;;
-    404)     # Backend without readyz-aware routing still answers; treat as alive.
-             add_ok "healthz answered HTTP 404 (unexpected but reachable)" ;;
-    *)       add_problem "healthz unreachable at $public_url/healthz (HTTP $http_code)" ;;
+    200|204) add_ok "readyz answered HTTP $http_code" ;;
+    404)     add_warning "backend does not serve /readyz (HTTP 404); database health is not checked" ;;
+    *)       add_problem "readyz failing at $public_url/readyz (HTTP $http_code)" ;;
 esac
+
+# 1b. TLS certificate lifetime (HTTPS endpoints only).
+if [[ "$public_url" == https://* ]] && command -v openssl >/dev/null 2>&1; then
+    tls_host="${public_url#https://}"; tls_host="${tls_host%%/*}"
+    cert_end="$(echo | timeout 10 openssl s_client -servername "${tls_host%%:*}" -connect "$tls_host$([[ "$tls_host" == *:* ]] || echo :443)" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)"
+    if [[ -n "$cert_end" ]] && cert_epoch="$(date -d "$cert_end" +%s 2>/dev/null)"; then
+        days_left=$(( (cert_epoch - $(date +%s)) / 86400 ))
+        if (( days_left < 7 )); then
+            add_problem "TLS certificate expires in ${days_left} days"
+        else
+            add_ok "TLS certificate valid for ${days_left} more days"
+        fi
+    fi
+fi
+
+# 1c. Backend restart count growth since the previous run.
+backend_id="$(docker compose ps -q backend 2>/dev/null || true)"
+if [[ -n "$backend_id" ]]; then
+    restarts="$(docker inspect -f '{{.RestartCount}}' "$backend_id" 2>/dev/null || echo '')"
+    state_file="backups/.watchdog-state"
+    if [[ "$restarts" =~ ^[0-9]+$ ]]; then
+        previous="$(sed -n 's/^backend_restarts=//p' "$state_file" 2>/dev/null | tail -n 1)"
+        if [[ "$previous" =~ ^[0-9]+$ ]] && (( restarts > previous )); then
+            add_warning "backend restarted $((restarts - previous)) time(s) since the last check"
+        fi
+        mkdir -p backups
+        printf 'backend_restarts=%s\n' "$restarts" >"$state_file"
+    fi
+fi
 
 # 2. Docker data root free space.
 docker_root="/var/lib/docker"

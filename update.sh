@@ -429,6 +429,18 @@ for service in backend frontend; do
     fi
 done
 
+# /healthz is liveness only; /readyz also pings the database.
+ready=0
+for _ in $(seq 1 10); do
+    if docker compose exec -T backend wget -q -O /dev/null http://127.0.0.1:8080/readyz; then ready=1; break; fi
+    sleep 3
+done
+if (( ! ready )); then
+    echo "Inspect with: docker compose logs --tail=100 backend" >&2
+    echo "Roll back with: ./update.sh --rollback" >&2
+    die "backend is healthy but /readyz does not succeed (database not ready?)"
+fi
+
 # Only after both applications are healthy: reclaim obsolete official images.
 # The helper preserves all container images and the immutable rollback manifest.
 # Operators may keep additional historical images with VOXHOLD_UPDATE_KEEP_IMAGES=1.
