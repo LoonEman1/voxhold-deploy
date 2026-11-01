@@ -82,13 +82,23 @@ class UpdaterTests(unittest.TestCase):
     def test_static_turn_password_is_migrated_to_a_secret(self):
         env = self.root/'.env'
         env.write_text(env.read_text()+'TURN_PASSWORD="old-shared-password"\nWEBRTC_CLIENT_ICE_USERNAME="voxhold"\nWEBRTC_CLIENT_ICE_CREDENTIAL="old-shared-password"\n')
-        result=self.run_update()
+        result=self.run_update('--backend-version','2.6.0')
         self.assertEqual(result.returncode,0,result.stderr)
         desired=dict(line.split('=',1) for line in env.read_text().splitlines() if '=' in line)
         self.assertRegex(desired['WEBRTC_TURN_SECRET'].strip('"'),r'^[A-Za-z0-9]{48}$')
         for key in ['TURN_PASSWORD','WEBRTC_CLIENT_ICE_USERNAME','WEBRTC_CLIENT_ICE_CREDENTIAL']:
             self.assertEqual(desired[key].strip('"'),'',key)
         self.assertNotIn('old-shared-password',env.read_text())
+        self.assertNotIn('WEBRTC_TURN_SECRET is empty',result.stderr)
+
+    def test_static_turn_password_is_kept_for_a_backend_without_secret_support(self):
+        env = self.root/'.env'
+        env.write_text(env.read_text()+'TURN_PASSWORD="old-shared-password"\n')
+        result=self.run_update()  # .env pins backend 2.0.0
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('TURN_PASSWORD="old-shared-password"',env.read_text())
+        self.assertNotIn('WEBRTC_TURN_SECRET="',env.read_text())
+        self.assertIn('WEBRTC_TURN_SECRET is empty',result.stderr)
 
     def test_paired_release_selects_both_images(self):
         result=self.run_update('--backend-version','2.1.0','--frontend-version','v2.1.0')

@@ -310,15 +310,39 @@ replace_env_key() {
     mv -- "$temporary_env" .env
 }
 
+# Per-user TURN credentials need a backend that mints them (2.6+). Tags
+# without a version (latest, digests, custom names) are treated as current.
+backend_supports_turn_secret() {
+    local ref="$1" tag
+    [[ "$ref" != *@* && "$ref" == *:* ]] || return 0
+    tag="${ref##*:}"
+    tag="${tag#v}"
+    [[ "$tag" =~ ^([0-9]+)\.([0-9]+)\. ]] || return 0
+    (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 6) ))
+}
+
 # Voxhold 2.6: replace the shared static TURN password by a secret used to
-# mint per-user, time-limited credentials (needs a 2.6+ backend, shipped in the
-# same release as this compose file).
-if [[ -n "$(env_value TURN_PASSWORD)" && -z "$(env_value WEBRTC_TURN_SECRET)" ]]; then
-    echo "Migrating TURN authentication to per-user credentials..."
-    replace_env_key WEBRTC_TURN_SECRET "$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-48)"
-    for key in WEBRTC_CLIENT_ICE_USERNAME WEBRTC_CLIENT_ICE_CREDENTIAL WEBRTC_ICE_USERNAME WEBRTC_ICE_CREDENTIAL TURN_PASSWORD; do
-        if has_env_key "$key"; then replace_env_key "$key" ""; fi
-    done
+# mint per-user, time-limited credentials. The old password is erased, so the
+# migration runs only when the selected backend can use the secret, and never
+# during --rollback.
+turn_target_backend="$(env_value VOXHOLD_BACKEND_IMAGE)"
+if [[ -n "$backend_version" ]]; then turn_target_backend="ghcr.io/looneman1/voxhold-backend:$backend_version"; fi
+if [[ "$do_rollback" != 1 && -n "$(env_value TURN_PASSWORD)" && -z "$(env_value WEBRTC_TURN_SECRET)" ]]; then
+    if backend_supports_turn_secret "$turn_target_backend"; then
+        echo "Migrating TURN authentication to per-user credentials..."
+        replace_env_key WEBRTC_TURN_SECRET "$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-48)"
+        for key in WEBRTC_CLIENT_ICE_USERNAME WEBRTC_CLIENT_ICE_CREDENTIAL WEBRTC_ICE_USERNAME WEBRTC_ICE_CREDENTIAL TURN_PASSWORD; do
+            if has_env_key "$key"; then replace_env_key "$key" ""; fi
+        done
+    else
+        echo "NOTE: TURN keeps the shared password: $turn_target_backend cannot mint per-user credentials." >&2
+    fi
+fi
+# coturn authenticates only with WEBRTC_TURN_SECRET; without it every relayed
+# connection fails, so say so instead of silently starting a broken TURN.
+if [[ ",$(env_value COMPOSE_PROFILES)," == *,turn,* && -z "$(env_value WEBRTC_TURN_SECRET)" ]]; then
+    echo "WARNING: the turn profile is enabled but WEBRTC_TURN_SECRET is empty; TURN relaying will fail." >&2
+    echo "Select a 2.6+ backend (./update.sh --backend-version <2.6 or newer>) or set WEBRTC_TURN_SECRET in .env." >&2
 fi
 
 # Capture the actual running images BEFORE editing the desired .env version.
