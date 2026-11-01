@@ -338,13 +338,21 @@ if [[ -n "$frontend_container_id" ]]; then
     last_good_frontend_digest="$(docker image inspect -f '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$image_id" 2>/dev/null || true)"
 fi
 
-# Database schema version of the running backend (empty when unknown).
+# Database schema version (empty when unknown). A rollback usually follows a
+# backend that crashes or restarts, where docker exec fails, so a one-off
+# container on the same volume is the fallback. Only the output of a command
+# that succeeded is parsed: docker's own errors contain hex container IDs.
 current_schema_version() {
-    local container
+    local container output version_cmd='migrate -path "$MIGRATIONS_PATH" -database "sqlite://$DATABASE_PATH" version'
     container="$(docker compose ps -q backend 2>/dev/null || true)"
-    [[ -n "$container" ]] || return 0
-    docker exec "$container" sh -c 'migrate -path "$MIGRATIONS_PATH" -database "sqlite://$DATABASE_PATH" version' 2>&1 \
-        | grep -oE '[0-9]+' | tail -n 1 || true
+    if [[ -n "$container" ]] && output="$(docker exec "$container" sh -c "$version_cmd" 2>&1)"; then
+        :
+    elif output="$(docker compose --progress quiet run --rm --no-deps -T --entrypoint sh backend -c "$version_cmd" 2>&1)"; then
+        :
+    else
+        return 0
+    fi
+    printf '%s\n' "$output" | grep -oE '[0-9]+' | tail -n 1 || true
 }
 if [[ "$do_rollback" == 1 ]]; then
     [[ -f .last-good.env ]] || die "no rollback manifest found (.last-good.env); nothing to roll back to."
@@ -363,11 +371,15 @@ if [[ "$do_rollback" == 1 ]]; then
             echo "Data written after that backup is lost." >&2
             die "refusing a rollback across a schema change without --with-data."
         fi
+    elif [[ -n "$saved_schema" && -z "$running_schema" && "$rollback_with_data" != 1 ]]; then
+        echo "WARNING: could not read the current database schema (saved: $saved_schema)." >&2
+        echo "If the newer release migrated it, use './update.sh --rollback --with-data'." >&2
     fi
     if [[ "$rollback_with_data" == 1 ]]; then
         [[ -n "${BACKUP_ARCHIVE:-}" && -f "${BACKUP_ARCHIVE}" ]] || die "no pre-update backup archive recorded (BACKUP_ARCHIVE) in .last-good.env."
         echo "Restoring database and files from ${BACKUP_ARCHIVE}..."
-        ./restore.sh "$BACKUP_ARCHIVE" --into-existing
+        # bash: restore.sh may lack the executable bit in an unpacked archive.
+        bash ./restore.sh "$BACKUP_ARCHIVE" --into-existing
     fi
     echo "WARNING: rolling back images. Database migrations are forward-only:"
     echo "if the newer release migrated the schema, restore the matching backup instead:"
