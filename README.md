@@ -143,6 +143,8 @@ TCP and UDP) and the relay range directly on the host. Required firewall ports:
 - `3478/tcp` + `3478/udp` — TURN client transport;
 - `49160-49559/udp` — relay allocations (`TURN_RELAY_PORT_MIN`–`MAX`).
 
+coturn runs with `--no-tcp-relay` (RFC 6062): browsers only need UDP relay allocations, and TCP relaying would let any TURN user open TCP connections to arbitrary addresses through the server.
+
 TURN logins are per-user and time-limited (HMAC of `WEBRTC_TURN_SECRET`, minted by
 the backend), but coturn cannot track a user quota across them, so `TURN_USER_QUOTA` must
 remain `0`; the overall allocation limit is `TURN_TOTAL_QUOTA`, sized to the
@@ -308,6 +310,18 @@ docker run --rm --user 0 \
   sh -c 'chown -R 10001:10001 /app/data && chmod 770 /app/data'
 ```
 
+
+## Forgot the owner password
+
+Email recovery does not exist, so the operator resets the password on the
+server (requires a Voxhold 2.6+ backend image):
+
+```bash
+./admin.sh reset-password <username>
+```
+
+The command prints a new random password once and revokes every session of
+that account. Log in with it and change it in the profile settings.
 
 ## Trusted client IP (2.1 audit)
 
