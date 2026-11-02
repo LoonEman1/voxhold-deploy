@@ -141,6 +141,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
     security_opt:
       - no-new-privileges:true
 
@@ -162,7 +164,9 @@ services:
       - "--listening-port=${TURN_LISTEN_PORT:-3478}"
       - "--fingerprint"
       - "--lt-cred-mech"
-      - "--user=${TURN_USERNAME:-voxhold}:${TURN_PASSWORD:-}"
+      # Per-user, time-limited credentials issued by the backend (TURN REST API).
+      - "--use-auth-secret"
+      - "--static-auth-secret=${WEBRTC_TURN_SECRET:-}"
       - "--realm=${TURN_REALM:-voxhold}"
       - "--external-ip=${WEBRTC_PUBLIC_IP:-}"
       - "--min-port=${TURN_RELAY_PORT_MIN:-49160}"
@@ -171,6 +175,7 @@ services:
       # --no-cli/--no-dtls flags are deprecated or rejected there.
       - "--no-tls"
       - "--no-multicast-peers"
+      - "--no-tcp-relay"
       - "--denied-peer-ip=0.0.0.0-0.255.255.255"
       - "--denied-peer-ip=10.0.0.0-10.255.255.255"
       - "--denied-peer-ip=100.64.0.0-100.127.255.255"

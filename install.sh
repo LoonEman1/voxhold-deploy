@@ -293,7 +293,8 @@ turn_total_quota=$(( turn_relay_port_max - turn_relay_port_min + 1 ))
 if [[ "$enable_turn" == "true" ]]; then
     echo "$msg_turn_enabled"
     turn_username="voxhold"
-    turn_password="$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-40)"
+    turn_password=""
+    turn_secret="$(LC_ALL=C head -c 256 /dev/urandom | base64 | tr -dC 'A-Za-z0-9' | cut -c1-48)"
     # WEBRTC_PUBLIC_IP stays bracket-free; only the URL host of an IPv6 TURN
     # server is wrapped in square brackets.
     if is_ipv6_address "$webrtc_public_ip"; then
@@ -302,11 +303,12 @@ if [[ "$enable_turn" == "true" ]]; then
         turn_url_host="$webrtc_public_ip"
     fi
     client_ice_servers="turn:${turn_url_host}:${turn_listen_port}?transport=udp,turn:${turn_url_host}:${turn_listen_port}?transport=tcp"
-    client_ice_username="$turn_username"
-    client_ice_credential="$turn_password"
+    client_ice_username=""
+    client_ice_credential=""
     compose_profiles="${compose_profiles:+$compose_profiles,}turn"
 else
     echo "$msg_turn_disabled"
+    turn_secret=""
     turn_username="voxhold"
     turn_password=""
     client_ice_servers=""
@@ -361,6 +363,7 @@ WEBRTC_STREAM_MAX_VIDEO_BITRATE_KBPS=16000
 WEBRTC_STREAM_MAX_AUDIO_BITRATE_KBPS=320
 TURN_USERNAME=$(dotenv_quote "$turn_username")
 TURN_PASSWORD=$(dotenv_quote "$turn_password")
+WEBRTC_TURN_SECRET=$(dotenv_quote "$turn_secret")
 TURN_REALM=voxhold
 TURN_LISTEN_PORT=3478
 TURN_RELAY_PORT_MIN=49160
@@ -395,9 +398,11 @@ WS_CONNECT_RATE_PER_MINUTE=10
 WS_CONNECT_RATE_BURST=5
 WS_EVENT_RATE_PER_SECOND=30
 WS_EVENT_RATE_BURST=60
-WS_MAX_CONNECTIONS_PER_IP=20
+WS_MAX_CONNECTIONS_PER_IP=50
 WS_MAX_CONNECTIONS_PER_USER=5
 RATE_LIMIT_MAX_ENTRIES=20000
+RATE_LIMIT_IPV6_PREFIX=64
+HTTP_IP_MULTIPLIER=4
 EOF
 
 if [[ "$enable_docker_at_boot" == "true" ]]; then

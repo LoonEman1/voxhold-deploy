@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistent cold SQLite backup: verifies the archive before publishing it,
+# Consistent SQLite backup (hot by default, --cold stops the backend): verifies the archive before publishing it,
 # restores the backend's original state on any failure, writes a DR manifest,
 # keeps a bounded set of archives and mirrors them offsite when configured.
 set -Eeuo pipefail
@@ -69,14 +69,15 @@ cleanup() {
     local status=$?
     rm -f -- "$manifest_file"
     rm -f -- "$partial_name"
-    if (( status != 0 )); then
+    # Exit 2 = archive published, only the offsite copy failed: not a backup failure.
+    if (( status != 0 && status != 2 )); then
         echo "Backend state restored; nothing was published." >&2
     fi
     # Bring the backend back exactly when it was serving before the backup.
     # update.sh sets VOXHOLD_BACKUP_LEAVE_STOPPED=1 after a successful backup
     # so the new image starts right away: one restart instead of two.
     if (( backend_was_running )) &&
-       { (( status != 0 )) || [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" != "1" ]]; }; then
+       { (( status != 0 && status != 2 )) || [[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" != "1" ]]; }; then
         docker compose start backend >/dev/null 2>&1 \
             || echo "WARNING: could not restart backend automatically; run: docker compose start backend" >&2
     fi
@@ -128,24 +129,84 @@ cat >"$manifest_file" <<EOF
 }
 EOF
 
-echo "Stopping backend briefly for a consistent SQLite backup..."
-docker compose stop backend
+# Hot mode (default) takes a VACUUM INTO snapshot of the live database and
+# copies the immutable attachment files while the backend keeps serving.
+# --cold (and update.sh) stop the backend first; so does a stopped backend.
+cold_mode=0
+for argument in "$@"; do
+    [[ "$argument" == "--cold" ]] && cold_mode=1
+done
+[[ "${VOXHOLD_BACKUP_LEAVE_STOPPED:-0}" == "1" ]] && cold_mode=1
+(( backend_was_running )) || cold_mode=1
 
-# The helper reads the manifest from stdin and streams the tar to stdout:
-# no host-path binds, so the script behaves identically on any platform.
-# BusyBox tar cannot combine two -C switches, so stage a flat directory.
-docker run --rm -i \
-    --volumes-from "$backend_container" \
-    alpine:3.22 \
-    sh -c '
-        set -e
-        mkdir /out
-        cp -a /app/data /out/data
-        cat > /out/manifest.json
-        cd /out
-        exec tar czf - manifest.json data
-    ' \
-    <"$manifest_file" >"$partial_name"
+# voxhold --backup-db exists since 2.6.0. An older binary does not know the
+# flag and would start a second server inside the container instead, so read
+# the image version label first; unlabeled (local) images count as current.
+backend_supports_hot_backup() {
+    local version
+    version="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$backend_container" 2>/dev/null || true)"
+    version="${version#v}"
+    [[ "$version" =~ ^([0-9]+)\.([0-9]+)\. ]] || return 0
+    (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 6) ))
+}
+if (( ! cold_mode )) && ! backend_supports_hot_backup; then
+    echo "NOTE: this backend image predates online snapshots (2.6); using the cold mode." >&2
+    cold_mode=1
+fi
+
+if (( cold_mode )); then
+    echo "Stopping backend briefly for a consistent SQLite backup..."
+    docker compose stop backend
+
+    # The helper reads the manifest from stdin and streams the tar to stdout:
+    # no host-path binds, so the script behaves identically on any platform.
+    # BusyBox tar cannot combine two -C switches, so stage a flat directory.
+    docker run --rm -i \
+        --volumes-from "$backend_container" \
+        alpine:3.22 \
+        sh -c '
+            set -e
+            mkdir /out
+            cp -a /app/data /out/data
+            # A snapshot left by an interrupted hot backup is not data.
+            rm -rf /out/data/.backup
+            cat > /out/manifest.json
+            cd /out
+            exec tar czf - manifest.json data
+        ' \
+        <"$manifest_file" >"$partial_name"
+else
+    echo "Taking an online database snapshot (the backend keeps running)..."
+    docker exec "$backend_container" voxhold --backup-db /app/data/.backup/voxhold.db \
+        || die "online snapshot failed (backend older than 2.6?); rerun with --cold"
+    # Attachment files are written through a temporary file and renamed, so
+    # copying them while the server runs is safe. The live database files and
+    # in-flight uploads are excluded; the verified snapshot replaces them.
+    docker run --rm -i \
+        --volumes-from "$backend_container" \
+        alpine:3.22 \
+        sh -c '
+            set -e -o pipefail
+            mkdir -p /out
+            cd /app/data
+            # Retention may delete a file while it is copied; a fresh attempt
+            # then succeeds. Any other error (disk full, I/O) fails the backup
+            # instead of publishing an archive with missing files.
+            attempt=1
+            until rm -rf /out/data && mkdir /out/data &&
+                tar cf - --exclude=./voxhold.db --exclude=./voxhold.db-wal --exclude=./voxhold.db-shm \
+                    --exclude="*.part" --exclude=./.backup . | tar xf - -C /out/data; do
+                if [ "$attempt" -ge 3 ]; then echo "copying the data files failed" >&2; exit 1; fi
+                attempt=$((attempt + 1))
+            done
+            cp /app/data/.backup/voxhold.db /out/data/voxhold.db
+            cat > /out/manifest.json
+            cd /out
+            exec tar czf - manifest.json data
+        ' \
+        <"$manifest_file" >"$partial_name"
+    docker exec "$backend_container" rm -rf /app/data/.backup >/dev/null 2>&1 || true
+fi
 
 # Verify before publishing: integrity first, then an atomic rename.
 tar -tzf "$partial_name" >/dev/null || die "archive verification failed"
@@ -158,22 +219,38 @@ while IFS= read -r stale_archive; do
 done < <(ls -1t backups/voxhold-*.tar.gz 2>/dev/null | tail -n +"$((keep_count + 1))")
 
 # Offsite copy: directory mirror or custom command (rsync/rclone/restic).
+# {} in the command is replaced by the shell-quoted archive path; "$1" works too.
 offsite_note="not configured"
+offsite_failed=0
 if [[ -n "$offsite_dir" ]]; then
-    mkdir -p "$offsite_dir"
-    cp -f -- "$final_name" "$sha_name" "$offsite_dir/"
-    offsite_note="$offsite_dir"
+    if mkdir -p "$offsite_dir" && cp -f -- "$final_name" "$sha_name" "$offsite_dir/"; then
+        offsite_note="$offsite_dir"
+    else
+        echo "WARNING: offsite directory copy failed." >&2
+        offsite_note="$offsite_dir FAILED"
+        offsite_failed=1
+    fi
 elif [[ -n "$offsite_cmd" ]]; then
-    if bash -c "$offsite_cmd" '$final_name'; then
+    quoted_archive="$(printf '%q' "$final_name")"
+    expanded_cmd="${offsite_cmd//\{\}/$quoted_archive}"
+    if bash -c "$expanded_cmd" voxhold-offsite "$final_name"; then
         offsite_note="custom command"
     else
         echo "WARNING: offsite command failed." >&2
         offsite_note="custom command FAILED"
+        offsite_failed=1
     fi
+fi
+if [[ -n "$offsite_dir$offsite_cmd" ]]; then
+    if (( offsite_failed )); then offsite_state=failed; else offsite_state=ok; fi
+    printf '%s %s\n' "$offsite_state" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >backups/.offsite-status
 fi
 
 echo "Backup created: backups/$backup_name"
 echo "Checksum:      backups/$backup_name.sha256"
 echo "Offsite:       $offsite_note"
 echo "Retention:     keeping $keep_count newest archives"
+
+# Exit 2: the archive is published locally but the configured offsite copy failed.
+if (( offsite_failed )); then exit 2; fi
 
