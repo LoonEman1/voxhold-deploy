@@ -16,7 +16,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Extract pinned Caddy binary
         run: |
-          image=$(docker compose --env-file .env.example config --no-env-resolution --format json |
+          project="$RUNNER_TEMP/caddy-config"
+          mkdir -p "$project"
+          touch "$project/.env"
+          image=$(docker compose --project-directory "$project" --env-file .env.example -f compose.yaml config --format json |
             python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["caddy"]["image"])')
           container=$(docker create "$image")
           trap 'docker rm -f "$container" >/dev/null' EXIT
