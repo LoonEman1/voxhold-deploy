@@ -7,7 +7,7 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: ./update.sh [--backend-version <version>] [--frontend-version <version>] [--rollback [--with-data]]
+Usage: ./update.sh [--deploy-ref <tag|branch|sha>] [--replace-local-deploy-files] [--backend-version <version>] [--frontend-version <version>] [--rollback [--with-data]]
 
 Without arguments, the script backs up the database, pulls the image
 references currently stored in .env, updates the stack and waits for the
@@ -16,6 +16,9 @@ to .last-good.env for ./update.sh --rollback.
 Use --backend-version 2.1.0 --frontend-version 2.1.0 for a paired release.
 Use --backend-version 0.2.0 (or v0.2.0) to switch the official backend image
 to an exact published release before updating.
+Use --deploy-ref <release-tag> to refresh deployment scripts, Compose and Caddy
+configuration before updating containers. Local changes are refused by default;
+--replace-local-deploy-files explicitly backs them up and replaces them.
 
 Использование: ./update.sh [--backend-version <версия>] [--frontend-version <версия>] [--rollback [--with-data]]
 
@@ -34,31 +37,54 @@ die() {
 
 backend_version=""
 frontend_version=""
+deploy_ref=""
+replace_local_deploy_files=0
+container_args=()
 do_rollback=0
 rollback_with_data=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --deploy-ref)
+            [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+            deploy_ref="$2"
+            shift 2
+            ;;
+        --replace-local-deploy-files)
+            replace_local_deploy_files=1
+            shift
+            ;;
         --backend-version)
             [[ $# -ge 2 ]] || { usage >&2; exit 2; }
             backend_version="$2"
+            container_args+=("$1" "$2")
             shift 2
             ;;
         --frontend-version)
             [[ $# -ge 2 ]] || { usage >&2; exit 2; }
             frontend_version="$2"
+            container_args+=("$1" "$2")
             shift 2
             ;;
         --rollback)
             do_rollback=1
+            container_args+=("$1")
             shift
             ;;
         --with-data)
             rollback_with_data=1
+            container_args+=("$1")
             shift
             ;;
         *) usage >&2; exit 2 ;;
     esac
 done
+
+if [[ "$replace_local_deploy_files" == 1 && -z "$deploy_ref" ]]; then
+    die "--replace-local-deploy-files requires --deploy-ref."
+fi
+if [[ -n "$deploy_ref" && "$do_rollback" == 1 ]]; then
+    die "--deploy-ref and --rollback are mutually exclusive; restore the saved deploy files first."
+fi
 
 if [[ "$rollback_with_data" == 1 && "$do_rollback" != 1 ]]; then
     echo "--with-data is only valid together with --rollback." >&2
@@ -81,6 +107,16 @@ fi
 if [[ -n "$frontend_version" ]] &&
    [[ ! "$frontend_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
     die "Invalid frontend version: $frontend_version"
+fi
+
+# Refresh before any .env migrations or container changes, then execute the new
+# updater with the original application flags and without the refresh flags.
+if [[ -n "$deploy_ref" ]]; then
+    command -v python3 >/dev/null || die "python3 is required to refresh deployment files."
+    refresh_args=(--directory "$DEPLOY_DIR" --ref "$deploy_ref")
+    if (( replace_local_deploy_files )); then refresh_args+=(--replace-local-deploy-files); fi
+    python3 "$DEPLOY_DIR/refresh-deploy.py" "${refresh_args[@]}"
+    exec bash "$DEPLOY_DIR/update.sh" "${container_args[@]}"
 fi
 
 if [[ ! -f .env ]]; then
@@ -467,6 +503,10 @@ if [[ "$do_rollback" != 1 ]]; then cpu_select_backend_image; fi
 docker compose pull
 cpu_preflight_backend
 
+# Validate the selected proxy image against the refreshed configuration before
+# stopping the backend or changing running containers.
+docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
 # Save before touching the stack, so a failed health check still has the correct
 # rollback point. A rollback must not replace its own recovery manifest.
 if [[ "$do_rollback" != 1 ]]; then write_last_good_manifest; fi
@@ -506,19 +546,19 @@ backend_left_stopped=0
 trap - EXIT
 
 # Check every deployed application component before declaring success.
-for service in backend frontend; do
+for service in backend frontend caddy coturn; do
     container_id="$(docker compose ps -q "$service")"
     if [[ -z "$container_id" ]]; then
-        [[ "$service" == "frontend" ]] && continue
-        die "backend container is missing after update"
+        [[ "$service" == "frontend" || "$service" == "coturn" ]] && continue
+        die "$service container is missing after update"
     fi
     health_status="starting"
     for _ in $(seq 1 40); do
         health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{if .State.Running}}running{{else}}stopped{{end}}{{end}}' "$container_id" 2>/dev/null || echo unknown)"
-        if [[ "$health_status" == "healthy" || ( "$service" == "frontend" && "$health_status" == "running" ) ]]; then break; fi
+        if [[ "$health_status" == "healthy" || ( "$service" != "backend" && "$health_status" == "running" ) ]]; then break; fi
         sleep 3
     done
-    if [[ "$health_status" != "healthy" && ( "$service" != "frontend" || "$health_status" != "running" ) ]]; then
+    if [[ "$health_status" != "healthy" && ( "$service" == "backend" || "$health_status" != "running" ) ]]; then
         echo "Inspect with: docker compose logs --tail=100 $service" >&2
         echo "Roll back with: ./update.sh --rollback" >&2
         die "$service did not report healthy within 120s (status: $health_status)"
