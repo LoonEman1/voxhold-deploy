@@ -237,6 +237,60 @@ cd voxhold-deploy
 ./update.sh
 ```
 
+Without `--deploy-ref`, the script uses local files and does not download new
+Compose, Caddy configuration or scripts. Refresh deploy files and then apply
+containers in one invocation (requires Python 3.9+):
+
+```bash
+./update.sh --deploy-ref main
+./update.sh --deploy-ref v2.6.4 --backend-version 2.6.4 --frontend-version 2.6.4
+```
+
+A published deploy tag or exact commit SHA can replace `main`. `dev` contains
+unreleased changes. Application image references remain those in `.env` unless
+the corresponding version options are supplied.
+
+The refresher resolves the ref to a commit SHA and validates the archive before
+writing. Replaced files are backed up under `.deploy-backups/`; `.env`, extra
+operator files, database backups, `.last-good.env` and Docker volumes remain.
+Checksums detect local Compose/Caddy changes and stop before replacing files.
+Legacy installations use the release tag from `VERSION` as their baseline.
+To intentionally back up and replace local changes:
+
+```bash
+./update.sh --deploy-ref main --replace-local-deploy-files
+```
+
+The new updater receives the original application options: it pulls images,
+validates Caddy with the new configuration before stopping the backend, creates
+the safety database backup, applies Compose and checks backend, frontend, Caddy
+and enabled coturn containers. Caddy is recreated even with an unchanged image
+tag so it sees a replaced bind-mounted Caddyfile. Active calls may reconnect.
+
+**First upgrade of an older README installer deployment.** It may have neither
+`.git` nor the new helper. To upgrade to 2.6.4, run this
+from the directory containing `.env`; another `install.sh` run is unnecessary:
+
+```bash
+(
+  set -e
+  helper="$(mktemp)"
+  trap 'rm -f -- "$helper"' EXIT
+  curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+    https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.6.4/refresh-deploy.py \
+    --output "$helper"
+  python3 "$helper" --directory "$PWD" --ref v2.6.4
+  ./update.sh --backend-version 2.6.4 --frontend-version 2.6.4
+)
+```
+
+Restore files with `python3 refresh-deploy.py --restore .deploy-backups/NAME`,
+using the backup directory printed by the refresher. This preserves `.env` and
+data and refuses to overwrite edits made after the upgrade. If containers were
+already updated, separately run `./update.sh --rollback`; database schema
+changes retain the existing data-restore requirements. If containers have not
+changed yet, restoring the files is sufficient.
+
 Certificate management requires no separate cron job or systemd timer. Inspect
 Caddy's status and certificate activity with:
 

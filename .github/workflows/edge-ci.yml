@@ -2,23 +2,28 @@ name: Edge configuration
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dev]
 permissions:
   contents: read
-# A new push to a PR cancels its superseded run; main runs always finish.
+# PR and dev pushes cancel superseded runs; main runs always finish.
 concurrency:
   group: edge-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Extract pinned Caddy binary
         run: |
-          container=$(docker create caddy:2.11.4)
+          project="$RUNNER_TEMP/caddy-config"
+          mkdir -p "$project"
+          touch "$project/.env"
+          image=$(docker compose --project-directory "$project" --env-file .env.example -f compose.yaml config --format json |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["caddy"]["image"])')
+          container=$(docker create "$image")
+          trap 'docker rm -f "$container" >/dev/null' EXIT
           docker cp "$container:/usr/bin/caddy" /tmp/caddy
-          docker rm "$container"
           chmod +x /tmp/caddy
       - name: Report Compose version
         run: docker compose version

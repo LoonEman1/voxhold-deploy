@@ -48,6 +48,7 @@ if args[:2]==['image','inspect']:
 if args and args[0]=='exec' and 'migrate' in ' '.join(args):
     print('version: '+os.environ.get('MOCK_SCHEMA','')); sys.exit(0)
 if args[:2]==['compose','pull'] and os.environ.get('MOCK_PULL_FAIL')=='1': sys.exit(1)
+if args[:2]==['compose','run'] and 'validate' in args and os.environ.get('MOCK_CADDY_INVALID')=='1': sys.exit(1)
 """
 
 @unittest.skipUnless(os.name == 'posix', 'Bash updater scenarios run on Linux CI')
@@ -73,6 +74,40 @@ class UpdaterTests(unittest.TestCase):
 
     def manifest(self):
         return (self.root/'.last-good.env').read_text()
+
+    def test_deploy_refresh_reexecutes_new_updater_with_application_arguments(self):
+        before = (self.root/'.env').read_bytes()
+        (self.root/'refresh-deploy.py').write_text("import json,sys\nfrom pathlib import Path\nPath('refresh.args').write_text(json.dumps(sys.argv[1:]))\nPath('update.sh').write_text('#!/bin/bash\\nprintf \\\"%s\\\\n\\\" \\\"$@\\\" > reexec.args\\n')\n")
+        result = self.run_update('--deploy-ref','main','--backend-version','2.6.3','--frontend-version','2.6.3','--replace-local-deploy-files')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.root/'.env').read_bytes(),before)
+        self.assertEqual((self.root/'reexec.args').read_text().splitlines(),['--backend-version','2.6.3','--frontend-version','2.6.3'])
+        arguments = json.loads((self.root/'refresh.args').read_text())
+        self.assertIn('--replace-local-deploy-files',arguments)
+        self.assertEqual(arguments[arguments.index('--ref')+1],'main')
+        self.assertFalse((self.root/'trace.jsonl').exists())
+
+    def test_failed_caddy_validation_does_not_stop_or_replace_containers(self):
+        result = self.run_update(MOCK_CADDY_INVALID='1')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((self.root/'backup.done').exists())
+        trace = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        self.assertNotIn(['compose','up','-d','--remove-orphans'],trace)
+
+    def test_recreates_proxy_so_replaced_bind_mounted_config_is_applied(self):
+        result = self.run_update()
+        self.assertEqual(result.returncode,0,result.stderr)
+        trace = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        stack = trace.index(['compose','up','-d','--remove-orphans'])
+        proxy = trace.index(['compose','up','-d','--no-deps','--force-recreate','caddy'])
+        self.assertGreater(proxy,stack)
+
+    def test_invalid_deploy_option_combinations_stop_before_refresh(self):
+        for arguments in [('--replace-local-deploy-files',), ('--deploy-ref','main','--rollback'), ('--deploy-ref','main','--backend-version','invalid')]:
+            with self.subTest(arguments=arguments):
+                result = self.run_update(*arguments)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse((self.root/'trace.jsonl').exists())
 
     def test_backend_pin_preserves_the_running_release_for_rollback(self):
         result=self.run_update('--backend-version','2.1.0')

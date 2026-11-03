@@ -119,7 +119,7 @@ services:
     cap_drop: ["ALL"]
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.6-alpine
     logging: *default-logging
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}

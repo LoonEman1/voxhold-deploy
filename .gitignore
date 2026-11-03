@@ -1,5 +1,8 @@
 .env
 backups/
+.deploy-backups/
+.deploy-state.json
+.deploy-refresh.lock/
 .DS_Store
 
 # Python regression-test bytecode.
