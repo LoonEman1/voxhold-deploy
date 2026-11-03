@@ -94,6 +94,14 @@ class UpdaterTests(unittest.TestCase):
         trace = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
         self.assertNotIn(['compose','up','-d','--remove-orphans'],trace)
 
+    def test_recreates_proxy_so_replaced_bind_mounted_config_is_applied(self):
+        result = self.run_update()
+        self.assertEqual(result.returncode,0,result.stderr)
+        trace = [json.loads(line) for line in (self.root/'trace.jsonl').read_text().splitlines()]
+        stack = trace.index(['compose','up','-d','--remove-orphans'])
+        proxy = trace.index(['compose','up','-d','--no-deps','--force-recreate','caddy'])
+        self.assertGreater(proxy,stack)
+
     def test_invalid_deploy_option_combinations_stop_before_refresh(self):
         for arguments in [('--replace-local-deploy-files',), ('--deploy-ref','main','--rollback'), ('--deploy-ref','main','--backend-version','invalid')]:
             with self.subTest(arguments=arguments):

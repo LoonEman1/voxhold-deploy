@@ -542,6 +542,9 @@ if [[ "${VOXHOLD_UPDATE_SKIP_BACKUP:-0}" != "1" ]] && [[ "$do_rollback" != 1 ]];
 fi
 
 docker compose up -d --remove-orphans
+# Atomic deployment-file replacement changes the inode of bind-mounted files.
+# Recreate the proxy so it sees a new Caddyfile even if its image tag is unchanged.
+docker compose up -d --no-deps --force-recreate caddy
 backend_left_stopped=0
 trap - EXIT
 

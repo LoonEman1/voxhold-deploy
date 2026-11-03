@@ -1,3 +1,24 @@
+# Voxhold Deploy 2.6.4
+
+Согласованный релиз с backend/frontend 2.6.4 от 3 ноября 2026 года.
+
+- Апдейтер `update.sh --deploy-ref <тег|ветка|SHA>` обновляет Compose, Caddyfile и скрипты, затем применяет контейнеры. Работает и для старых установок из архива без Git.
+- Файлы проверяются до записи, ref закрепляется за commit SHA. Сохраняются резервные копии заменяемых файлов; локальные правки требуют явного `--replace-local-deploy-files`.
+- `.env`, бэкапы данных, `.last-good.env` и Docker volumes сохраняются. Предусмотрено отдельное восстановление предыдущих файлов deploy.
+- Caddy обновлён с 2.11.4 до 2.11.6. Конфигурация проверяется новым образом до остановки backend; прокси пересоздаётся для применения заменённого Caddyfile даже без смены тега.
+- После обновления проверяются backend, frontend, Caddy и включённый coturn. Обновлены GitHub Actions; CI проверяет именно образ Caddy из Compose и запускается на dev.
+- Оба README описывают новую команду, первый переход старой установки, локальные изменения и восстановление.
+
+Обычное обновление уже подготовленной установки:
+`./update.sh --deploy-ref v2.6.4 --backend-version 2.6.4 --frontend-version 2.6.4`.
+Для старой установки без нового скрипта используйте раздел первого обновления в README.ru.md.
+Порядок публикации и обновления: backend → frontend → deploy. Новых миграций поверх 000040 нет.
+Этот релиз не подключается к серверу Selectel и не обновляет его автоматически.
+
+English: refresh archive-installed deployment files with backups and local-change
+protection, upgrade Caddy, validate it before downtime and apply replaced proxy
+configuration reliably. Operator secrets and persistent data remain in place.
+
 # Voxhold Deploy 2.6.2
 
 Согласованный выпуск проекта с backend/frontend 2.6.2 от 2 ноября 2026 года.

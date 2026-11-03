@@ -241,7 +241,7 @@ Compose, Caddyfile или скрипты с GitHub. Для обновления 
 
 ```bash
 ./update.sh --deploy-ref main
-./update.sh --deploy-ref main --backend-version 2.6.3 --frontend-version 2.6.3
+./update.sh --deploy-ref v2.6.4 --backend-version 2.6.4 --frontend-version 2.6.4
 ```
 
 Вместо `main` можно указать опубликованный тег deploy или точный commit SHA.
@@ -262,10 +262,11 @@ Compose, Caddyfile или скрипты с GitHub. Для обновления 
 Затем новая версия `update.sh` получает исходные аргументы приложений: скачивает
 образы, проверяет Caddy с новой конфигурацией до остановки backend, делает
 страховочный бэкап БД, применяет Compose и проверяет backend, frontend, Caddy
-и включённый coturn. Активные звонки могут переподключиться.
+и включённый coturn. Caddy пересоздаётся и при прежнем теге образа, чтобы
+подхватить заменённый Caddyfile. Активные звонки могут переподключиться.
 
 **Первое обновление старой установки из README.** В ней может не быть `.git`
-и нового вспомогательного скрипта. После публикации этой версии в `main` выполните из каталога
+и нового вспомогательного скрипта. Для перехода на 2.6.4 выполните из каталога
 с `.env` (повторно запускать `install.sh` не нужно):
 
 ```bash
@@ -274,10 +275,10 @@ Compose, Caddyfile или скрипты с GitHub. Для обновления 
   helper="$(mktemp)"
   trap 'rm -f -- "$helper"' EXIT
   curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/refresh-deploy.py \
+    https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.6.4/refresh-deploy.py \
     --output "$helper"
-  python3 "$helper" --directory "$PWD" --ref main
-  ./update.sh
+  python3 "$helper" --directory "$PWD" --ref v2.6.4
+  ./update.sh --backend-version 2.6.4 --frontend-version 2.6.4
 )
 ```
 

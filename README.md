@@ -243,7 +243,7 @@ containers in one invocation (requires Python 3.9+):
 
 ```bash
 ./update.sh --deploy-ref main
-./update.sh --deploy-ref main --backend-version 2.6.3 --frontend-version 2.6.3
+./update.sh --deploy-ref v2.6.4 --backend-version 2.6.4 --frontend-version 2.6.4
 ```
 
 A published deploy tag or exact commit SHA can replace `main`. `dev` contains
@@ -264,10 +264,11 @@ To intentionally back up and replace local changes:
 The new updater receives the original application options: it pulls images,
 validates Caddy with the new configuration before stopping the backend, creates
 the safety database backup, applies Compose and checks backend, frontend, Caddy
-and enabled coturn containers. Active calls may reconnect.
+and enabled coturn containers. Caddy is recreated even with an unchanged image
+tag so it sees a replaced bind-mounted Caddyfile. Active calls may reconnect.
 
 **First upgrade of an older README installer deployment.** It may have neither
-`.git` nor the new helper. Once this version is published on `main`, run this
+`.git` nor the new helper. To upgrade to 2.6.4, run this
 from the directory containing `.env`; another `install.sh` run is unnecessary:
 
 ```bash
@@ -276,10 +277,10 @@ from the directory containing `.env`; another `install.sh` run is unnecessary:
   helper="$(mktemp)"
   trap 'rm -f -- "$helper"' EXIT
   curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/main/refresh-deploy.py \
+    https://raw.githubusercontent.com/LoonEman1/voxhold-deploy/v2.6.4/refresh-deploy.py \
     --output "$helper"
-  python3 "$helper" --directory "$PWD" --ref main
-  ./update.sh
+  python3 "$helper" --directory "$PWD" --ref v2.6.4
+  ./update.sh --backend-version 2.6.4 --frontend-version 2.6.4
 )
 ```
 
